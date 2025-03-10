@@ -945,6 +945,16 @@ static int ti_csi2rx_link_validate(struct media_link *link)
 			ti_fmt->fourcc, csi_fmt->pixelformat);
 		return -EPIPE;
 	}
+	if (source_fmt.format.code != MEDIA_BUS_FMT_SRGGB10_1X10) {
+       		dev_err(csi->dev, "Format mismatch: Expected SRGGB10_1X10\\n");
+        	return -EPIPE;
+    }	
+
+    // Ensure lane configuration matches
+   	if (csi->source->lanes != 2) {
+        	dev_err(csi->dev, "Lane mismatch: Expected 2 lanes\\n");
+        	return -EPIPE;
+    }
 
 	return 0;
 }

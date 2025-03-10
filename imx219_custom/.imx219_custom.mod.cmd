@@ -1,0 +1,1 @@
+cmd_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.mod := printf '%s\n'   imx219_custom.o | awk '!x[$$0]++ { print("/home/mcw/Video_pipeline/imx219_custom/"$$0) }' > /home/mcw/Video_pipeline/imx219_custom/imx219_custom.mod

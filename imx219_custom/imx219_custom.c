@@ -39,7 +39,7 @@
 #define IMX219_EXPOSURE_MIN     4
 #define IMX219_EXPOSURE_MAX     65535
 #define IMX219_EXPOSURE_DEFAULT 1000
-
+#define IMX219_REG_CSI_LANE_MODE  0x0114
 /* Supported Formats */
 static const u32 imx219_mbus_formats[] = {
     MEDIA_BUS_FMT_SRGGB10_1X10,
@@ -82,7 +82,7 @@ struct imx219 {
     struct v4l2_ctrl *digital_gain;
     
     const struct imx219_mode *current_mode;
-    u8 lanes;
+    u32 lanes;
 };
 
 static inline struct imx219 *to_imx219(struct v4l2_subdev *sd)
@@ -94,6 +94,8 @@ static inline struct imx219 *to_imx219(struct v4l2_subdev *sd)
 static int imx219_check_identity(struct imx219 *imx219)
 {
     struct i2c_client *client = v4l2_get_subdevdata(&imx219->sd);
+    struct device *dev = &client->dev;
+    u32 lanes;
     unsigned int val;
     int ret;
 
@@ -109,8 +111,15 @@ static int imx219_check_identity(struct imx219 *imx219)
                (u16)val, IMX219_CHIP_ID);
         return -ENODEV;
     }
-
     dev_info(&client->dev, "Detected IMX219 sensor\n");
+    ret = of_property_read_u32(dev->of_node, "data-lanes", &imx219->lanes);
+	if (ret) {
+    		dev_err(dev, "Missing 'data-lanes' in DT\n");
+    		return -EINVAL;
+    }
+    imx219->lanes = lanes;
+
+    
     return 0;
 }
 
@@ -133,7 +142,17 @@ static int imx219_power_on(struct device *dev)
         dev_err(dev, "Failed to enable clock\n");
         goto disable_regulators;
     }
-
+    switch (imx219->lanes) {
+    case 2:
+        regmap_write(imx219->regmap, IMX219_REG_CSI_LANE_MODE, 0x01);
+        break;
+    case 4:
+        regmap_write(imx219->regmap, IMX219_REG_CSI_LANE_MODE, 0x03);
+        break;
+    default:
+        dev_err(dev, "Unsupported lane count: %d\n", imx219->lanes);
+        return -EINVAL;
+    }
     gpiod_set_value_cansleep(imx219->reset_gpio, 1);
     usleep_range(5000, 6000);
 
@@ -166,9 +185,9 @@ static int imx219_set_ctrl(struct v4l2_ctrl *ctrl)
                                        ctrl_handler);
     int ret = 0;
 
-    if (pm_runtime_get_if_in_use(imx219->sd.dev) <= 0)
+    if (pm_runtime_resume_and_get(imx219->sd.dev) < 0)
         return 0;
-
+    
     switch (ctrl->id) {
     case V4L2_CID_EXPOSURE:
         ret = regmap_write(imx219->regmap, IMX219_REG_EXPOSURE,
@@ -243,6 +262,7 @@ static int imx219_set_stream(struct v4l2_subdev *sd, int enable)
                        IMX219_MODE_STREAMING);
         if (ret)
             return ret;
+         usleep_range(1000, 2000);
     } else {
         ret = regmap_write(imx219->regmap, IMX219_REG_MODE_SELECT,
                        IMX219_MODE_STANDBY);
@@ -269,11 +289,10 @@ static int imx219_set_format(struct v4l2_subdev *sd,
     struct imx219 *imx219 = to_imx219(sd);
     struct v4l2_mbus_framefmt *format = &fmt->format;
 
-    imx219->current_mode = v4l2_find_nearest_size(
-        supported_modes, ARRAY_SIZE(supported_modes),
-        width, height, format->width, format->height);
+    imx219->current_mode = &supported_modes[1]; // Match 1920x1080 mode
+    imx219->lanes = 2;
 
-    format->code = imx219_mbus_formats[0];
+    format->code = MEDIA_BUS_FMT_SRGGB10_1X10;
     format->width = imx219->current_mode->width;
     format->height = imx219->current_mode->height;
     format->field = V4L2_FIELD_NONE;
@@ -306,12 +325,14 @@ static int imx219_probe(struct i2c_client *client, const struct i2c_device_id *i
 {
     struct device *dev = &client->dev;
     struct imx219 *imx219;
+    u32 lanes;
     int ret;
 
     imx219 = devm_kzalloc(dev, sizeof(*imx219), GFP_KERNEL);
     if (!imx219)
         return -ENOMEM;
-        
+    imx219->lanes = 2;
+
     imx219->regmap = devm_regmap_init_i2c(client, &imx219_regmap_config);
     if (IS_ERR(imx219->regmap)) {
         return PTR_ERR(imx219->regmap);
@@ -331,13 +352,19 @@ static int imx219_probe(struct i2c_client *client, const struct i2c_device_id *i
     imx219->supplies[2].supply = "vddl";
     ret = devm_regulator_bulk_get(dev, ARRAY_SIZE(imx219->supplies),
                                  imx219->supplies);
+    if (device_property_read_u32(&client->dev, "data-lanes", &imx219->lanes)) {
+        dev_err(&client->dev, "Failed to read data-lanes property\n");
+        return -EINVAL;
+    }
+    imx219->lanes = lanes;
+
+    if (imx219->lanes < 1 || imx219->lanes > 4) {
+        dev_err(&client->dev, "Invalid number of lanes: %u\n", imx219->lanes);
+        return -EINVAL;
+    }
     if (ret)
         return ret;
-
-    /* Initialize Subdev */
-    v4l2_i2c_subdev_init(&imx219->sd, client, &imx219_subdev_ops);
-    imx219->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
-
+        
     /* Verify Chip Identity */
     ret = imx219_power_on(dev);
     if (ret)
@@ -346,6 +373,11 @@ static int imx219_probe(struct i2c_client *client, const struct i2c_device_id *i
     ret = imx219_check_identity(imx219);
     if (ret)
         goto error_power_off;
+    /* Initialize Subdev */
+    v4l2_i2c_subdev_init(&imx219->sd, client, &imx219_subdev_ops);
+    imx219->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
+
+
 
     /* Initialize Controls */
     ret = imx219_init_controls(imx219);
