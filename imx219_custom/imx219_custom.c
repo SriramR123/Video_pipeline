@@ -5,7 +5,6 @@
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
-#include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
 #include <media/v4l2-cci.h>
 #include <media/v4l2-ctrls.h>
@@ -292,7 +291,13 @@ static int imx219_set_format(struct v4l2_subdev *sd,
     struct imx219 *imx219 = to_imx219(sd);
     struct v4l2_mbus_framefmt *format;
 
-    format = v4l2_subdev_state_get_format(state, 0);
+    /* For kernel 6.1, use v4l2_subdev_get_try_format for TRY formats */
+    if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
+        format = v4l2_subdev_get_try_format(sd, state, fmt->pad);
+    } else {
+        /* For ACTIVE formats, use a static format for simplicity */
+        format = &fmt->format;
+    }
 
     imx219->current_mode = &supported_modes[1]; // Default to 1920x1080
     format->code = MEDIA_BUS_FMT_SRGGB10_1X10;
@@ -301,28 +306,7 @@ static int imx219_set_format(struct v4l2_subdev *sd,
     format->field = V4L2_FIELD_NONE;
     format->colorspace = V4L2_COLORSPACE_RAW;
 
-    if (fmt->which == V4L2_SUBDEV_FORMAT_ACTIVE)
-        *format = fmt->format;
-
     return 0;
-}
-
-static int imx219_init_state(struct v4l2_subdev *sd,
-                             struct v4l2_subdev_state *state)
-{
-    struct v4l2_subdev_format fmt = {
-        .which = V4L2_SUBDEV_FORMAT_TRY,
-        .pad = 0,
-        .format = {
-            .code = MEDIA_BUS_FMT_SRGGB10_1X10,
-            .width = supported_modes[1].width,
-            .height = supported_modes[1].height,
-            .field = V4L2_FIELD_NONE,
-            .colorspace = V4L2_COLORSPACE_RAW,
-        },
-    };
-
-    return imx219_set_format(sd, state, &fmt);
 }
 
 static const struct v4l2_subdev_video_ops imx219_video_ops = {
@@ -340,10 +324,7 @@ static const struct v4l2_subdev_ops imx219_subdev_ops = {
     .pad = &imx219_pad_ops,
 };
 
-static const struct v4l2_subdev_internal_ops imx219_internal_ops = {
-    .init_state = imx219_init_state,
-};
-
+/* No init_state in 6.1, so omit internal_ops for now */
 static const struct regmap_config imx219_regmap_config = {
     .reg_bits = 16,
     .val_bits = 16,
@@ -435,7 +416,6 @@ static int imx219_probe(struct i2c_client *client, const struct i2c_device_id *i
 
     /* Initialize Subdev */
     v4l2_i2c_subdev_init(&imx219->sd, client, &imx219_subdev_ops);
-    imx219->sd.internal_ops = &imx219_internal_ops;
     imx219->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
     imx219->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
 
@@ -450,17 +430,11 @@ static int imx219_probe(struct i2c_client *client, const struct i2c_device_id *i
     if (ret)
         goto error_handler_free;
 
-    /* State Lock */
-    imx219->sd.state_lock = &imx219->mutex;
-    ret = v4l2_subdev_init_finalize(&imx219->sd);
-    if (ret < 0)
-        goto error_media_entity;
-
     /* Register as an async subdevice */
     ret = v4l2_async_register_subdev_sensor(&imx219->sd);
     if (ret < 0) {
         dev_err_probe(dev, ret, "Failed to register async subdev\n");
-        goto error_subdev_cleanup;
+        goto error_media_entity;
     }
 
     /* Runtime PM */
@@ -471,8 +445,6 @@ static int imx219_probe(struct i2c_client *client, const struct i2c_device_id *i
     dev_info(dev, "IMX219 custom driver probed successfully\n");
     return 0;
 
-error_subdev_cleanup:
-    v4l2_subdev_cleanup(&imx219->sd);
 error_media_entity:
     media_entity_cleanup(&imx219->sd.entity);
 error_handler_free:
@@ -489,7 +461,6 @@ static void imx219_remove(struct i2c_client *client)
     struct imx219 *imx219 = to_imx219(sd);
 
     v4l2_async_unregister_subdev(sd);
-    v4l2_subdev_cleanup(sd);
     media_entity_cleanup(&sd->entity);
     v4l2_ctrl_handler_free(&imx219->ctrl_handler);
     pm_runtime_disable(&client->dev);
@@ -500,7 +471,7 @@ static void imx219_remove(struct i2c_client *client)
 }
 
 static const struct of_device_id imx219_of_match[] = {
-    { .compatible = "sony,imx219_custom" },
+    { .compatible = "sony,imx219-custom" },
     { }
 };
 MODULE_DEVICE_TABLE(of, imx219_of_match);
