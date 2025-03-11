@@ -471,7 +471,7 @@ static void imx219_remove(struct i2c_client *client)
 }
 
 static const struct of_device_id imx219_of_match[] = {
-    { .compatible = "sony,imx219-custom" },
+    { .compatible = "sony,imx219_custom" },
     { }
 };
 MODULE_DEVICE_TABLE(of, imx219_of_match);
