@@ -1,1 +1,0 @@
-cmd_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.ko := aarch64-linux-gnu-ld -r  -EL  -maarch64elf -z noexecstack   --build-id=sha1  -T scripts/module.lds -o /home/mcw/Video_pipeline/imx219_custom/imx219_custom.ko /home/mcw/Video_pipeline/imx219_custom/imx219_custom.o /home/mcw/Video_pipeline/imx219_custom/imx219_custom.mod.o;  true

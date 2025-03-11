@@ -39,7 +39,9 @@
 #define IMX219_EXPOSURE_MIN     4
 #define IMX219_EXPOSURE_MAX     65535
 #define IMX219_EXPOSURE_DEFAULT 1000
+
 #define IMX219_REG_CSI_LANE_MODE  0x0114
+
 /* Supported Formats */
 static const u32 imx219_mbus_formats[] = {
     MEDIA_BUS_FMT_SRGGB10_1X10,
@@ -70,19 +72,20 @@ static const struct imx219_mode supported_modes[] = {
 
 struct imx219 {
     struct v4l2_subdev sd;
-    struct media_pad pad;
+    struct media_pad pad;  // Single source pad
     struct regmap *regmap;
     struct clk *xclk;
     struct regulator_bulk_data supplies[3];
     struct gpio_desc *reset_gpio;
-    
+
     struct v4l2_ctrl_handler ctrl_handler;
     struct v4l2_ctrl *exposure;
     struct v4l2_ctrl *analog_gain;
     struct v4l2_ctrl *digital_gain;
-    
+
     const struct imx219_mode *current_mode;
-    u32 lanes;
+    u8 lanes;  // Number of MIPI lanes (2 or 4)
+    struct mutex mutex;  // Lock for state management
 };
 
 static inline struct imx219 *to_imx219(struct v4l2_subdev *sd)
@@ -94,8 +97,6 @@ static inline struct imx219 *to_imx219(struct v4l2_subdev *sd)
 static int imx219_check_identity(struct imx219 *imx219)
 {
     struct i2c_client *client = v4l2_get_subdevdata(&imx219->sd);
-    struct device *dev = &client->dev;
-    u32 lanes;
     unsigned int val;
     int ret;
 
@@ -106,20 +107,13 @@ static int imx219_check_identity(struct imx219 *imx219)
     }
 
     if ((u16)val != IMX219_CHIP_ID) {
-        dev_err(&client->dev, 
-               "Chip ID mismatch: 0x%04X != 0x%04X\n",
-               (u16)val, IMX219_CHIP_ID);
+        dev_err(&client->dev,
+                "Chip ID mismatch: 0x%04X != 0x%04X\n",
+                (u16)val, IMX219_CHIP_ID);
         return -ENODEV;
     }
-    dev_info(&client->dev, "Detected IMX219 sensor\n");
-    ret = of_property_read_u32(dev->of_node, "data-lanes", &imx219->lanes);
-	if (ret) {
-    		dev_err(dev, "Missing 'data-lanes' in DT\n");
-    		return -EINVAL;
-    }
-    imx219->lanes = lanes;
 
-    
+    dev_info(&client->dev, "Detected IMX219 sensor\n");
     return 0;
 }
 
@@ -131,7 +125,7 @@ static int imx219_power_on(struct device *dev)
     int ret;
 
     ret = regulator_bulk_enable(ARRAY_SIZE(imx219->supplies),
-                               imx219->supplies);
+                                imx219->supplies);
     if (ret) {
         dev_err(dev, "Failed to enable regulators\n");
         return ret;
@@ -142,6 +136,7 @@ static int imx219_power_on(struct device *dev)
         dev_err(dev, "Failed to enable clock\n");
         goto disable_regulators;
     }
+
     switch (imx219->lanes) {
     case 2:
         regmap_write(imx219->regmap, IMX219_REG_CSI_LANE_MODE, 0x01);
@@ -153,6 +148,7 @@ static int imx219_power_on(struct device *dev)
         dev_err(dev, "Unsupported lane count: %d\n", imx219->lanes);
         return -EINVAL;
     }
+
     gpiod_set_value_cansleep(imx219->reset_gpio, 1);
     usleep_range(5000, 6000);
 
@@ -160,7 +156,7 @@ static int imx219_power_on(struct device *dev)
 
 disable_regulators:
     regulator_bulk_disable(ARRAY_SIZE(imx219->supplies),
-                          imx219->supplies);
+                           imx219->supplies);
     return ret;
 }
 
@@ -172,7 +168,7 @@ static int imx219_power_off(struct device *dev)
     gpiod_set_value_cansleep(imx219->reset_gpio, 0);
     clk_disable_unprepare(imx219->xclk);
     regulator_bulk_disable(ARRAY_SIZE(imx219->supplies),
-                          imx219->supplies);
+                           imx219->supplies);
 
     return 0;
 }
@@ -181,25 +177,22 @@ static int imx219_power_off(struct device *dev)
 static int imx219_set_ctrl(struct v4l2_ctrl *ctrl)
 {
     struct imx219 *imx219 = container_of(ctrl->handler,
-                                       struct imx219,
-                                       ctrl_handler);
+                                         struct imx219,
+                                         ctrl_handler);
     int ret = 0;
 
     if (pm_runtime_resume_and_get(imx219->sd.dev) < 0)
-        return 0;
-    
+        return -EIO;
+
     switch (ctrl->id) {
     case V4L2_CID_EXPOSURE:
-        ret = regmap_write(imx219->regmap, IMX219_REG_EXPOSURE,
-                       ctrl->val);
+        ret = regmap_write(imx219->regmap, IMX219_REG_EXPOSURE, ctrl->val);
         break;
     case V4L2_CID_ANALOGUE_GAIN:
-        ret = regmap_write(imx219->regmap, IMX219_REG_ANALOG_GAIN,
-                       ctrl->val);
+        ret = regmap_write(imx219->regmap, IMX219_REG_ANALOG_GAIN, ctrl->val);
         break;
     case V4L2_CID_DIGITAL_GAIN:
-        ret = regmap_write(imx219->regmap, IMX219_REG_DIGITAL_GAIN,
-                       ctrl->val);
+        ret = regmap_write(imx219->regmap, IMX219_REG_DIGITAL_GAIN, ctrl->val);
         break;
     default:
         ret = -EINVAL;
@@ -219,27 +212,27 @@ static int imx219_init_controls(struct imx219 *imx219)
     struct v4l2_ctrl_handler *hdl = &imx219->ctrl_handler;
     int ret;
 
-    ret = v4l2_ctrl_handler_init(hdl, 4);
+    ret = v4l2_ctrl_handler_init(hdl, 3);
     if (ret)
         return ret;
 
     imx219->exposure = v4l2_ctrl_new_std(hdl, &imx219_ctrl_ops,
-                                        V4L2_CID_EXPOSURE,
-                                        IMX219_EXPOSURE_MIN,
-                                        IMX219_EXPOSURE_MAX,
-                                        1, IMX219_EXPOSURE_DEFAULT);
+                                         V4L2_CID_EXPOSURE,
+                                         IMX219_EXPOSURE_MIN,
+                                         IMX219_EXPOSURE_MAX,
+                                         1, IMX219_EXPOSURE_DEFAULT);
 
     imx219->analog_gain = v4l2_ctrl_new_std(hdl, &imx219_ctrl_ops,
-                                          V4L2_CID_ANALOGUE_GAIN,
-                                          IMX219_ANA_GAIN_MIN,
-                                          IMX219_ANA_GAIN_MAX,
-                                          1, IMX219_ANA_GAIN_DEFAULT);
+                                            V4L2_CID_ANALOGUE_GAIN,
+                                            IMX219_ANA_GAIN_MIN,
+                                            IMX219_ANA_GAIN_MAX,
+                                            1, IMX219_ANA_GAIN_DEFAULT);
 
     imx219->digital_gain = v4l2_ctrl_new_std(hdl, &imx219_ctrl_ops,
-                                           V4L2_CID_DIGITAL_GAIN,
-                                           IMX219_DGTL_GAIN_MIN,
-                                           IMX219_DGTL_GAIN_MAX,
-                                           1, IMX219_DGTL_GAIN_DEFAULT);
+                                             V4L2_CID_DIGITAL_GAIN,
+                                             IMX219_DGTL_GAIN_MIN,
+                                             IMX219_DGTL_GAIN_MAX,
+                                             1, IMX219_DGTL_GAIN_DEFAULT);
 
     if (hdl->error) {
         ret = hdl->error;
@@ -257,23 +250,33 @@ static int imx219_set_stream(struct v4l2_subdev *sd, int enable)
     struct imx219 *imx219 = to_imx219(sd);
     int ret;
 
+    mutex_lock(&imx219->mutex);
     if (enable) {
+        ret = pm_runtime_resume_and_get(imx219->sd.dev);
+        if (ret < 0)
+            goto unlock;
+
         ret = regmap_write(imx219->regmap, IMX219_REG_MODE_SELECT,
-                       IMX219_MODE_STREAMING);
-        if (ret)
-            return ret;
-         usleep_range(1000, 2000);
+                           IMX219_MODE_STREAMING);
+        if (ret) {
+            pm_runtime_put(imx219->sd.dev);
+            goto unlock;
+        }
+        usleep_range(1000, 2000);
     } else {
         ret = regmap_write(imx219->regmap, IMX219_REG_MODE_SELECT,
-                       IMX219_MODE_STANDBY);
+                           IMX219_MODE_STANDBY);
+        pm_runtime_put(imx219->sd.dev);
     }
 
+unlock:
+    mutex_unlock(&imx219->mutex);
     return ret;
 }
 
 static int imx219_enum_mbus_code(struct v4l2_subdev *sd,
-                                struct v4l2_subdev_state *state,
-                                struct v4l2_subdev_mbus_code_enum *code)
+                                 struct v4l2_subdev_state *state,
+                                 struct v4l2_subdev_mbus_code_enum *code)
 {
     if (code->index >= ARRAY_SIZE(imx219_mbus_formats))
         return -EINVAL;
@@ -283,22 +286,43 @@ static int imx219_enum_mbus_code(struct v4l2_subdev *sd,
 }
 
 static int imx219_set_format(struct v4l2_subdev *sd,
-                            struct v4l2_subdev_state *state,
-                            struct v4l2_subdev_format *fmt)
+                             struct v4l2_subdev_state *state,
+                             struct v4l2_subdev_format *fmt)
 {
     struct imx219 *imx219 = to_imx219(sd);
-    struct v4l2_mbus_framefmt *format = &fmt->format;
+    struct v4l2_mbus_framefmt *format;
 
-    imx219->current_mode = &supported_modes[1]; // Match 1920x1080 mode
-    imx219->lanes = 2;
+    format = v4l2_subdev_state_get_format(state, 0);
 
+    imx219->current_mode = &supported_modes[1]; // Default to 1920x1080
     format->code = MEDIA_BUS_FMT_SRGGB10_1X10;
     format->width = imx219->current_mode->width;
     format->height = imx219->current_mode->height;
     format->field = V4L2_FIELD_NONE;
     format->colorspace = V4L2_COLORSPACE_RAW;
 
+    if (fmt->which == V4L2_SUBDEV_FORMAT_ACTIVE)
+        *format = fmt->format;
+
     return 0;
+}
+
+static int imx219_init_state(struct v4l2_subdev *sd,
+                             struct v4l2_subdev_state *state)
+{
+    struct v4l2_subdev_format fmt = {
+        .which = V4L2_SUBDEV_FORMAT_TRY,
+        .pad = 0,
+        .format = {
+            .code = MEDIA_BUS_FMT_SRGGB10_1X10,
+            .width = supported_modes[1].width,
+            .height = supported_modes[1].height,
+            .field = V4L2_FIELD_NONE,
+            .colorspace = V4L2_COLORSPACE_RAW,
+        },
+    };
+
+    return imx219_set_format(sd, state, &fmt);
 }
 
 static const struct v4l2_subdev_video_ops imx219_video_ops = {
@@ -315,35 +339,75 @@ static const struct v4l2_subdev_ops imx219_subdev_ops = {
     .video = &imx219_video_ops,
     .pad = &imx219_pad_ops,
 };
+
+static const struct v4l2_subdev_internal_ops imx219_internal_ops = {
+    .init_state = imx219_init_state,
+};
+
 static const struct regmap_config imx219_regmap_config = {
     .reg_bits = 16,
     .val_bits = 16,
     .max_register = 0xffff,
 };
+
+/* Check Hardware Configuration */
+static int imx219_check_hwcfg(struct device *dev, struct imx219 *imx219)
+{
+    struct fwnode_handle *endpoint;
+    struct v4l2_fwnode_endpoint ep_cfg = {
+        .bus_type = V4L2_MBUS_CSI2_DPHY
+    };
+    int ret = -EINVAL;
+
+    endpoint = fwnode_graph_get_next_endpoint(dev_fwnode(dev), NULL);
+    if (!endpoint)
+        return dev_err_probe(dev, -EINVAL, "Endpoint node not found\n");
+
+    if (v4l2_fwnode_endpoint_alloc_parse(endpoint, &ep_cfg)) {
+        dev_err_probe(dev, -EINVAL, "Could not parse endpoint\n");
+        goto error_out;
+    }
+
+    /* Check the number of MIPI CSI2 data lanes */
+    if (ep_cfg.bus.mipi_csi2.num_data_lanes != 2 &&
+        ep_cfg.bus.mipi_csi2.num_data_lanes != 4) {
+        dev_err_probe(dev, -EINVAL,
+                      "Only 2 or 4 data lanes are supported\n");
+        goto error_out;
+    }
+    imx219->lanes = ep_cfg.bus.mipi_csi2.num_data_lanes;
+
+    ret = 0;
+
+error_out:
+    v4l2_fwnode_endpoint_free(&ep_cfg);
+    fwnode_handle_put(endpoint);
+    return ret;
+}
+
 /* Probe & Remove */
 static int imx219_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
     struct device *dev = &client->dev;
     struct imx219 *imx219;
-    u32 lanes;
     int ret;
 
     imx219 = devm_kzalloc(dev, sizeof(*imx219), GFP_KERNEL);
     if (!imx219)
         return -ENOMEM;
-    imx219->lanes = 2;
+
+    mutex_init(&imx219->mutex);
 
     imx219->regmap = devm_regmap_init_i2c(client, &imx219_regmap_config);
-    if (IS_ERR(imx219->regmap)) {
+    if (IS_ERR(imx219->regmap))
         return PTR_ERR(imx219->regmap);
-        }
 
     /* Power Management */
     imx219->xclk = devm_clk_get(dev, NULL);
     if (IS_ERR(imx219->xclk))
         return PTR_ERR(imx219->xclk);
 
-    imx219->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
+    imx219->reset_gpio = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_LOW);
     if (IS_ERR(imx219->reset_gpio))
         return PTR_ERR(imx219->reset_gpio);
 
@@ -351,20 +415,15 @@ static int imx219_probe(struct i2c_client *client, const struct i2c_device_id *i
     imx219->supplies[1].supply = "vdig";
     imx219->supplies[2].supply = "vddl";
     ret = devm_regulator_bulk_get(dev, ARRAY_SIZE(imx219->supplies),
-                                 imx219->supplies);
-    if (device_property_read_u32(&client->dev, "data-lanes", &imx219->lanes)) {
-        dev_err(&client->dev, "Failed to read data-lanes property\n");
-        return -EINVAL;
-    }
-    imx219->lanes = lanes;
-
-    if (imx219->lanes < 1 || imx219->lanes > 4) {
-        dev_err(&client->dev, "Invalid number of lanes: %u\n", imx219->lanes);
-        return -EINVAL;
-    }
+                                  imx219->supplies);
     if (ret)
         return ret;
-        
+
+    /* Check hardware configuration */
+    ret = imx219_check_hwcfg(dev, imx219);
+    if (ret)
+        return ret;
+
     /* Verify Chip Identity */
     ret = imx219_power_on(dev);
     if (ret)
@@ -373,11 +432,12 @@ static int imx219_probe(struct i2c_client *client, const struct i2c_device_id *i
     ret = imx219_check_identity(imx219);
     if (ret)
         goto error_power_off;
+
     /* Initialize Subdev */
     v4l2_i2c_subdev_init(&imx219->sd, client, &imx219_subdev_ops);
+    imx219->sd.internal_ops = &imx219_internal_ops;
     imx219->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
-
-
+    imx219->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
 
     /* Initialize Controls */
     ret = imx219_init_controls(imx219);
@@ -390,17 +450,36 @@ static int imx219_probe(struct i2c_client *client, const struct i2c_device_id *i
     if (ret)
         goto error_handler_free;
 
+    /* State Lock */
+    imx219->sd.state_lock = &imx219->mutex;
+    ret = v4l2_subdev_init_finalize(&imx219->sd);
+    if (ret < 0)
+        goto error_media_entity;
+
+    /* Register as an async subdevice */
+    ret = v4l2_async_register_subdev_sensor(&imx219->sd);
+    if (ret < 0) {
+        dev_err_probe(dev, ret, "Failed to register async subdev\n");
+        goto error_subdev_cleanup;
+    }
+
     /* Runtime PM */
     pm_runtime_set_active(dev);
     pm_runtime_enable(dev);
     pm_runtime_idle(dev);
 
+    dev_info(dev, "IMX219 custom driver probed successfully\n");
     return 0;
 
+error_subdev_cleanup:
+    v4l2_subdev_cleanup(&imx219->sd);
+error_media_entity:
+    media_entity_cleanup(&imx219->sd.entity);
 error_handler_free:
     v4l2_ctrl_handler_free(&imx219->ctrl_handler);
 error_power_off:
     imx219_power_off(dev);
+    mutex_destroy(&imx219->mutex);
     return ret;
 }
 
@@ -409,26 +488,33 @@ static void imx219_remove(struct i2c_client *client)
     struct v4l2_subdev *sd = i2c_get_clientdata(client);
     struct imx219 *imx219 = to_imx219(sd);
 
-    pm_runtime_disable(&client->dev);
     v4l2_async_unregister_subdev(sd);
+    v4l2_subdev_cleanup(sd);
     media_entity_cleanup(&sd->entity);
     v4l2_ctrl_handler_free(&imx219->ctrl_handler);
+    pm_runtime_disable(&client->dev);
+    if (!pm_runtime_status_suspended(&client->dev))
+        imx219_power_off(&client->dev);
+    pm_runtime_set_suspended(&client->dev);
+    mutex_destroy(&imx219->mutex);
 }
 
 static const struct of_device_id imx219_of_match[] = {
-    { .compatible = "sony,imx219" },
+    { .compatible = "sony,imx219_custom" },
     { }
 };
 MODULE_DEVICE_TABLE(of, imx219_of_match);
+
+static const struct dev_pm_ops imx219_pm_ops = {
+    SET_RUNTIME_PM_OPS(imx219_power_off, imx219_power_on, NULL)
+};
 
 static struct i2c_driver imx219_i2c_driver = {
     .driver = {
         .name = "imx219_custom",
         .of_match_table = imx219_of_match,
-        .pm = &(const struct dev_pm_ops){
-            SET_RUNTIME_PM_OPS(imx219_power_off, imx219_power_on, NULL)
+        .pm = &imx219_pm_ops,
     },
-},
     .probe = imx219_probe,
     .remove = imx219_remove,
 };
