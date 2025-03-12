@@ -629,7 +629,7 @@ static int imx219_probe(struct i2c_client *client)
     snprintf(sd->name, sizeof(sd->name), "imx219 %d-00%02x", client->adapter->nr, client->addr);
     dev_info(dev, "Registering async notifier for subdev '%s'\n", sd->name);
 
-    ret = v4l2_async_subdev_nf_register(sd, &priv->notifier);
+    ret = v4l2_async_register_subdev_sensor(&priv->sd);
     if (ret) {
         dev_err(dev, "Failed to register async notifier: %d\n", ret);
         fwnode_handle_put(fwnode);
