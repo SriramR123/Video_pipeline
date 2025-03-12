@@ -518,10 +518,6 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
   include/linux/swait.h \
   include/linux/wait.h \
   include/uapi/linux/wait.h \
-  include/linux/regmap.h \
-    $(wildcard include/config/REGMAP) \
-  include/linux/rbtree.h \
-  include/linux/rbtree_types.h \
   include/linux/delay.h \
   include/linux/sched.h \
     $(wildcard include/config/VIRT_CPU_ACCOUNTING_NATIVE) \
@@ -623,6 +619,8 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
     $(wildcard include/config/TIME_LOW_RES) \
     $(wildcard include/config/TIMERFD) \
   include/linux/hrtimer_defs.h \
+  include/linux/rbtree.h \
+  include/linux/rbtree_types.h \
   include/linux/seqlock.h \
   include/linux/timerqueue.h \
   include/linux/seccomp.h \
@@ -678,87 +676,6 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
     $(wildcard include/config/DEBUG_KMAP_LOCAL) \
   arch/arm64/include/generated/asm/delay.h \
   include/asm-generic/delay.h \
-  include/linux/iopoll.h \
-  include/linux/io.h \
-    $(wildcard include/config/HAS_IOPORT_MAP) \
-    $(wildcard include/config/PCI) \
-  arch/arm64/include/asm/io.h \
-  include/linux/pgtable.h \
-    $(wildcard include/config/HIGHPTE) \
-    $(wildcard include/config/TRANSPARENT_HUGEPAGE) \
-    $(wildcard include/config/ARCH_HAS_NONLEAF_PMD_YOUNG) \
-    $(wildcard include/config/GUP_GET_PTE_LOW_HIGH) \
-    $(wildcard include/config/HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD) \
-    $(wildcard include/config/HAVE_ARCH_SOFT_DIRTY) \
-    $(wildcard include/config/ARCH_ENABLE_THP_MIGRATION) \
-    $(wildcard include/config/ARCH_HAS_PTE_DEVMAP) \
-    $(wildcard include/config/HAVE_ARCH_HUGE_VMAP) \
-    $(wildcard include/config/X86_ESPFIX64) \
-    $(wildcard include/config/HUGETLB_PAGE) \
-  arch/arm64/include/asm/pgtable.h \
-    $(wildcard include/config/PAGE_TABLE_CHECK) \
-  arch/arm64/include/asm/proc-fns.h \
-  arch/arm64/include/asm/mte.h \
-  include/linux/page-flags.h \
-    $(wildcard include/config/ARCH_USES_PG_UNCACHED) \
-    $(wildcard include/config/MEMORY_FAILURE) \
-    $(wildcard include/config/PAGE_IDLE_FLAG) \
-    $(wildcard include/config/MEMORY_HOTPLUG) \
-    $(wildcard include/config/HUGETLB_PAGE_OPTIMIZE_VMEMMAP) \
-    $(wildcard include/config/SWAP) \
-    $(wildcard include/config/KSM) \
-  include/linux/mm_types.h \
-    $(wildcard include/config/HAVE_ALIGNED_STRUCT_PAGE) \
-    $(wildcard include/config/USERFAULTFD) \
-    $(wildcard include/config/HAVE_ARCH_COMPAT_MMAP_BASES) \
-    $(wildcard include/config/MEMBARRIER) \
-    $(wildcard include/config/AIO) \
-    $(wildcard include/config/MMU_NOTIFIER) \
-  include/linux/auxvec.h \
-  include/uapi/linux/auxvec.h \
-  arch/arm64/include/uapi/asm/auxvec.h \
-  include/linux/kref.h \
-  include/linux/maple_tree.h \
-    $(wildcard include/config/MAPLE_RCU_DISABLED) \
-    $(wildcard include/config/DEBUG_MAPLE_TREE_VERBOSE) \
-    $(wildcard include/config/DEBUG_MAPLE_TREE) \
-  include/linux/uprobes.h \
-  include/linux/page-flags-layout.h \
-  include/generated/bounds.h \
-  arch/arm64/include/asm/sparsemem.h \
-  arch/arm64/include/asm/mmu.h \
-  arch/arm64/include/asm/pgtable-prot.h \
-    $(wildcard include/config/ARM64_BTI_KERNEL) \
-  arch/arm64/include/asm/tlbflush.h \
-    $(wildcard include/config/ARM64_WORKAROUND_REPEAT_TLBI) \
-  arch/arm64/include/asm/fixmap.h \
-    $(wildcard include/config/ACPI_APEI_GHES) \
-    $(wildcard include/config/ARM_SDE_INTERFACE) \
-    $(wildcard include/config/UNMAP_KERNEL_AT_EL0) \
-    $(wildcard include/config/RELOCATABLE) \
-  arch/arm64/include/asm/boot.h \
-  include/asm-generic/fixmap.h \
-  include/linux/page_table_check.h \
-  include/asm-generic/pgtable_uffd.h \
-    $(wildcard include/config/HAVE_ARCH_USERFAULTFD_WP) \
-  arch/arm64/include/generated/asm/early_ioremap.h \
-  include/asm-generic/early_ioremap.h \
-    $(wildcard include/config/GENERIC_EARLY_IOREMAP) \
-  include/asm-generic/io.h \
-    $(wildcard include/config/GENERIC_IOMAP) \
-    $(wildcard include/config/TRACE_MMIO_ACCESS) \
-    $(wildcard include/config/GENERIC_IOREMAP) \
-  include/asm-generic/pci_iomap.h \
-    $(wildcard include/config/NO_GENERIC_PCI_IOPORT_MAP) \
-    $(wildcard include/config/GENERIC_PCI_IOMAP) \
-  include/linux/logic_pio.h \
-    $(wildcard include/config/INDIRECT_PIO) \
-  include/linux/fwnode.h \
-  include/linux/vmalloc.h \
-    $(wildcard include/config/KASAN_VMALLOC) \
-    $(wildcard include/config/HAVE_ARCH_HUGE_VMALLOC) \
-  arch/arm64/include/asm/vmalloc.h \
-    $(wildcard include/config/PTDUMP_DEBUGFS) \
   include/linux/gpio/consumer.h \
     $(wildcard include/config/GPIOLIB) \
     $(wildcard include/config/OF_GPIO) \
@@ -779,6 +696,7 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
     $(wildcard include/config/ACPI_HOTPLUG_CPU) \
     $(wildcard include/config/ACPI_HOTPLUG_IOAPIC) \
     $(wildcard include/config/X86_IO_APIC) \
+    $(wildcard include/config/PCI) \
     $(wildcard include/config/ACPI_WMI) \
     $(wildcard include/config/ACPI_NUMA) \
     $(wildcard include/config/HIBERNATION) \
@@ -796,6 +714,7 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
     $(wildcard include/config/ACPI_PCC) \
   include/linux/ioport.h \
     $(wildcard include/config/MEMORY_HOTREMOVE) \
+    $(wildcard include/config/MEMORY_HOTPLUG) \
   include/linux/irqdomain.h \
     $(wildcard include/config/IRQ_DOMAIN_HIERARCHY) \
     $(wildcard include/config/GENERIC_IRQ_DEBUGFS) \
@@ -827,6 +746,8 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
     $(wildcard include/config/ARCH_FORCE_MAX_ORDER) \
     $(wildcard include/config/MEMORY_ISOLATION) \
     $(wildcard include/config/ZSMALLOC) \
+    $(wildcard include/config/SWAP) \
+    $(wildcard include/config/TRANSPARENT_HUGEPAGE) \
     $(wildcard include/config/LRU_GEN_STATS) \
     $(wildcard include/config/PAGE_EXTENSION) \
     $(wildcard include/config/DEFERRED_STRUCT_PAGE_INIT) \
@@ -834,7 +755,34 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
     $(wildcard include/config/SPARSEMEM_EXTREME) \
     $(wildcard include/config/HAVE_ARCH_PFN_VALID) \
   include/linux/pageblock-flags.h \
+    $(wildcard include/config/HUGETLB_PAGE) \
     $(wildcard include/config/HUGETLB_PAGE_SIZE_VARIABLE) \
+  include/linux/page-flags-layout.h \
+  include/generated/bounds.h \
+  arch/arm64/include/asm/sparsemem.h \
+  include/linux/mm_types.h \
+    $(wildcard include/config/HAVE_ALIGNED_STRUCT_PAGE) \
+    $(wildcard include/config/USERFAULTFD) \
+    $(wildcard include/config/HAVE_ARCH_COMPAT_MMAP_BASES) \
+    $(wildcard include/config/MEMBARRIER) \
+    $(wildcard include/config/AIO) \
+    $(wildcard include/config/MMU_NOTIFIER) \
+    $(wildcard include/config/KSM) \
+  include/linux/auxvec.h \
+  include/uapi/linux/auxvec.h \
+  arch/arm64/include/uapi/asm/auxvec.h \
+  include/linux/kref.h \
+  include/linux/maple_tree.h \
+    $(wildcard include/config/MAPLE_RCU_DISABLED) \
+    $(wildcard include/config/DEBUG_MAPLE_TREE_VERBOSE) \
+    $(wildcard include/config/DEBUG_MAPLE_TREE) \
+  include/linux/uprobes.h \
+  arch/arm64/include/asm/mmu.h \
+  include/linux/page-flags.h \
+    $(wildcard include/config/ARCH_USES_PG_UNCACHED) \
+    $(wildcard include/config/MEMORY_FAILURE) \
+    $(wildcard include/config/PAGE_IDLE_FLAG) \
+    $(wildcard include/config/HUGETLB_PAGE_OPTIMIZE_VMEMMAP) \
   include/linux/local_lock.h \
   include/linux/local_lock_internal.h \
   include/linux/memory_hotplug.h \
@@ -872,6 +820,7 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
   include/linux/uuid.h \
   include/uapi/linux/uuid.h \
   include/linux/property.h \
+  include/linux/fwnode.h \
   include/linux/resource_ext.h \
   include/linux/slab.h \
     $(wildcard include/config/DEBUG_SLAB) \
@@ -884,6 +833,7 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
   include/linux/percpu-refcount.h \
   include/linux/kasan.h \
     $(wildcard include/config/KASAN_STACK) \
+    $(wildcard include/config/KASAN_VMALLOC) \
   include/linux/device.h \
     $(wildcard include/config/GENERIC_MSI_IRQ_DOMAIN) \
     $(wildcard include/config/GENERIC_MSI_IRQ) \
@@ -1013,7 +963,9 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
   arch/arm64/include/asm/uaccess.h \
   arch/arm64/include/asm/kernel-pgtable.h \
     $(wildcard include/config/RANDOMIZE_BASE) \
+  arch/arm64/include/asm/boot.h \
   arch/arm64/include/asm/asm-extable.h \
+  arch/arm64/include/asm/mte.h \
   arch/arm64/include/asm/extable.h \
     $(wildcard include/config/BPF_JIT) \
   include/asm-generic/access_ok.h \
@@ -1154,6 +1106,51 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
     $(wildcard include/config/HARDIRQS_SW_RESEND) \
     $(wildcard include/config/GENERIC_IRQ_LEGACY) \
     $(wildcard include/config/GENERIC_IRQ_MULTI_HANDLER) \
+  include/linux/io.h \
+    $(wildcard include/config/HAS_IOPORT_MAP) \
+  arch/arm64/include/asm/io.h \
+  include/linux/pgtable.h \
+    $(wildcard include/config/HIGHPTE) \
+    $(wildcard include/config/ARCH_HAS_NONLEAF_PMD_YOUNG) \
+    $(wildcard include/config/GUP_GET_PTE_LOW_HIGH) \
+    $(wildcard include/config/HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD) \
+    $(wildcard include/config/HAVE_ARCH_SOFT_DIRTY) \
+    $(wildcard include/config/ARCH_ENABLE_THP_MIGRATION) \
+    $(wildcard include/config/ARCH_HAS_PTE_DEVMAP) \
+    $(wildcard include/config/HAVE_ARCH_HUGE_VMAP) \
+    $(wildcard include/config/X86_ESPFIX64) \
+  arch/arm64/include/asm/pgtable.h \
+    $(wildcard include/config/PAGE_TABLE_CHECK) \
+  arch/arm64/include/asm/proc-fns.h \
+  arch/arm64/include/asm/pgtable-prot.h \
+    $(wildcard include/config/ARM64_BTI_KERNEL) \
+  arch/arm64/include/asm/tlbflush.h \
+    $(wildcard include/config/ARM64_WORKAROUND_REPEAT_TLBI) \
+  arch/arm64/include/asm/fixmap.h \
+    $(wildcard include/config/ACPI_APEI_GHES) \
+    $(wildcard include/config/ARM_SDE_INTERFACE) \
+    $(wildcard include/config/UNMAP_KERNEL_AT_EL0) \
+    $(wildcard include/config/RELOCATABLE) \
+  include/asm-generic/fixmap.h \
+  include/linux/page_table_check.h \
+  include/asm-generic/pgtable_uffd.h \
+    $(wildcard include/config/HAVE_ARCH_USERFAULTFD_WP) \
+  arch/arm64/include/generated/asm/early_ioremap.h \
+  include/asm-generic/early_ioremap.h \
+    $(wildcard include/config/GENERIC_EARLY_IOREMAP) \
+  include/asm-generic/io.h \
+    $(wildcard include/config/GENERIC_IOMAP) \
+    $(wildcard include/config/TRACE_MMIO_ACCESS) \
+    $(wildcard include/config/GENERIC_IOREMAP) \
+  include/asm-generic/pci_iomap.h \
+    $(wildcard include/config/NO_GENERIC_PCI_IOPORT_MAP) \
+    $(wildcard include/config/GENERIC_PCI_IOMAP) \
+  include/linux/logic_pio.h \
+    $(wildcard include/config/INDIRECT_PIO) \
+  include/linux/vmalloc.h \
+    $(wildcard include/config/HAVE_ARCH_HUGE_VMALLOC) \
+  arch/arm64/include/asm/vmalloc.h \
+    $(wildcard include/config/PTDUMP_DEBUGFS) \
   arch/arm64/include/generated/asm/irq_regs.h \
   include/asm-generic/irq_regs.h \
   include/linux/irqdesc.h \
@@ -1314,8 +1311,6 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
     $(wildcard include/config/DEBUG_RT_MUTEXES) \
   include/uapi/linux/i2c.h \
   include/linux/pm_runtime.h \
-  include/media/v4l2-cci.h \
-    $(wildcard include/config/V4L2_CCI_I2C) \
   include/media/v4l2-ctrls.h \
   include/linux/videodev2.h \
   include/uapi/linux/videodev2.h \
@@ -1374,9 +1369,8 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
   include/linux/cdev.h \
   include/media/media-entity.h \
   include/uapi/linux/media.h \
-  include/media/v4l2-device.h \
-    $(wildcard include/config/VIDEO_V4L2_SUBDEV_API) \
   include/media/v4l2-subdev.h \
+    $(wildcard include/config/VIDEO_V4L2_SUBDEV_API) \
   include/uapi/linux/v4l2-subdev.h \
   include/uapi/linux/v4l2-mediabus.h \
   include/uapi/linux/media-bus-format.h \
@@ -1391,6 +1385,9 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
   include/media/v4l2-fh.h \
   include/media/v4l2-mediabus.h \
   include/media/v4l2-fwnode.h \
+  arch/arm64/include/generated/asm/unaligned.h \
+  include/asm-generic/unaligned.h \
+  include/linux/unaligned/packed_struct.h \
 
 /home/mcw/Video_pipeline/imx219_custom/imx219_custom.o: $(deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o)
 
