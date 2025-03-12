@@ -490,14 +490,14 @@ static const struct v4l2_subdev_ops imx219_ops = {
 
 /* Async notifier callbacks */
 static int imx219_async_bound(struct v4l2_async_notifier *notifier,
-                              struct v4l2_subdev *subdev,
-                              struct v4l2_async_subdev *asd)
+    struct v4l2_subdev *subdev,
+    struct v4l2_async_subdev *asd)
 {
-    struct imx219_priv *priv = container_of(notifier, struct imx219_priv, notifier);
-    struct i2c_client *client = v4l2_get_subdevdata(&priv->sd);
+struct imx219_priv *priv = container_of(notifier, struct imx219_priv, notifier);
+struct i2c_client *client = v4l2_get_subdevdata(&priv->sd);
 
-    dev_info(&client->dev, "Async subdev bound successfully to %s\n", subdev->name);
-    return 0;
+dev_info(&client->dev, "Async subdev bound successfully to %s\n", subdev->name);
+return 0;
 }
 
 static void imx219_async_unbind(struct v4l2_async_notifier *notifier,
@@ -634,6 +634,8 @@ static int imx219_probe(struct i2c_client *client)
         dev_err(dev, "Failed to register async notifier: %d\n", ret);
         fwnode_handle_put(fwnode);
         goto err_notifier;
+    } else {
+        dev_info(dev, "Async notifier registered successfully\n");
     }
 
     pm_runtime_set_active(dev);
@@ -676,7 +678,7 @@ static void imx219_remove(struct i2c_client *client)
 
 /* Device tree and module info */
 static const struct of_device_id imx219_dt_ids[] = {
-    { .compatible = "sony,imx219_custom" },
+    { .compatible = "sony,imx219" },
     { }
 };
 MODULE_DEVICE_TABLE(of, imx219_dt_ids);

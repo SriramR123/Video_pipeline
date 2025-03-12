@@ -28,5 +28,5 @@ MODULE_INFO(retpoline, "Y");
 
 MODULE_INFO(depends, "");
 
-MODULE_ALIAS("of:N*T*Csony,imx219_custom");
-MODULE_ALIAS("of:N*T*Csony,imx219_customC*");
+MODULE_ALIAS("of:N*T*Csony,imx219");
+MODULE_ALIAS("of:N*T*Csony,imx219C*");
