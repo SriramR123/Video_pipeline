@@ -410,25 +410,45 @@ static int imx219_start_streaming(struct imx219_priv *priv)
     if (ret < 0)
         return ret;
 
-    ret = imx219_write_reg(client, IMX219_REG_MODE_SELECT, 1, IMX219_MODE_STREAMING);
-    if (ret) {
-        dev_err(&client->dev, "Failed to start streaming: %d\n", ret);
-        pm_runtime_put(&client->dev);
-        return ret;
-    }
+    /* Basic PLL setup (from Driver 1) */
+    ret = imx219_write_reg(client, 0x0301, 1, 5);  // VTPXCK_DIV
+    ret |= imx219_write_reg(client, 0x0303, 1, 1); // VTSYCK_DIV
+    ret |= imx219_write_reg(client, 0x0304, 1, 3); // PREPLLCK_VT_DIV
+    ret |= imx219_write_reg(client, 0x0306, 2, 57); // PLL_VT_MPY
+    if (ret)
+        goto err;
 
+    /* Lane configuration (2 lanes for simplicity) */
+    ret = imx219_write_reg(client, 0x0114, 1, 0x01); // 2-lane mode
+    if (ret)
+        goto err;
+
+    /* Output format */
+    ret = imx219_write_reg(client, 0x016c, 2, priv->fmt.width);
+    ret |= imx219_write_reg(client, 0x016e, 2, priv->fmt.height);
+    ret |= imx219_write_reg(client, 0x018c, 2, 0x0a0a); // 10-bit Bayer
+    if (ret)
+        goto err;
+
+    /* Apply controls (VTS, exposure, etc.) */
     ret = __v4l2_ctrl_handler_setup(&priv->ctrl_handler);
-    if (ret) {
-        imx219_write_reg(client, IMX219_REG_MODE_SELECT, 1, IMX219_MODE_STANDBY);
-        pm_runtime_put(&client->dev);
-        return ret;
-    }
+    if (ret)
+        goto err;
+
+    /* Start streaming */
+    ret = imx219_write_reg(client, IMX219_REG_MODE_SELECT, 1, IMX219_MODE_STREAMING);
+    if (ret)
+        goto err;
 
     __v4l2_ctrl_grab(priv->hflip, true);
     __v4l2_ctrl_grab(priv->vflip, true);
-
-    dev_info(&client->dev, "Streaming started\n");
+    priv->streaming = true;
+    dev_info(&client->dev, "Streaming started at %dx%d\n", priv->fmt.width, priv->fmt.height);
     return 0;
+
+err:
+    pm_runtime_put(&client->dev);
+    return ret;
 }
 
 static int imx219_stop_streaming(struct imx219_priv *priv)
