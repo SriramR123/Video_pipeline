@@ -43,6 +43,18 @@
 #define IMX219_VTS_MAX              0xffff
 #define IMX219_PPL_DEFAULT          3448
 
+/* Additional registers for cropping and output */
+#define IMX219_REG_LINE_LENGTH_A    0x0162
+#define IMX219_REG_X_ADD_STA_A      0x0164
+#define IMX219_REG_X_ADD_END_A      0x0166
+#define IMX219_REG_Y_ADD_STA_A      0x0168
+#define IMX219_REG_Y_ADD_END_A      0x016a
+#define IMX219_REG_X_OUTPUT_SIZE    0x016c
+#define IMX219_REG_Y_OUTPUT_SIZE    0x016e
+#define IMX219_REG_X_ODD_INC_A      0x0170
+#define IMX219_REG_Y_ODD_INC_A      0x0171
+#define IMX219_REG_CSI_DATA_FORMAT_A 0x018c
+
 /* Supported formats */
 static const u32 supported_codes[] = {
     MEDIA_BUS_FMT_SRGGB10_1X10, MEDIA_BUS_FMT_SGRBG10_1X10,
@@ -71,6 +83,41 @@ static const struct imx219_mode supported_modes[] = {
     { .width = 1920, .height = 1080, .vts_def = 1763, .hblank_def = IMX219_PPL_DEFAULT - 1920 },
     { .width = 1640, .height = 1232, .vts_def = 1763, .hblank_def = IMX219_PPL_DEFAULT - 1640 },
     { .width = 640,  .height = 480,  .vts_def = 1763, .hblank_def = IMX219_PPL_DEFAULT - 640  },
+};
+
+/* Common register initialization */
+static const struct reg_sequence {
+    u16 reg;
+    u32 val;
+    u32 len;
+} imx219_common_regs[] = {
+    { IMX219_REG_MODE_SELECT, IMX219_MODE_STANDBY, 1 }, /* Standby */
+    /* PLL Clock Table */
+    { 0x0301, 5, 1 },  /* VTPXCK_DIV */
+    { 0x0303, 1, 1 },  /* VTSYCK_DIV */
+    { 0x0304, 3, 1 },  /* PREPLLCK_VT_DIV */
+    { 0x0305, 3, 1 },  /* PREPLLCK_OP_DIV */
+    { 0x0306, 57, 2 }, /* PLL_VT_MPY */
+    { 0x0309, 10, 1 }, /* OPPXCK_DIV (default 10-bit, adjusted later) */
+    { 0x030b, 1, 1 },  /* OPSYCK_DIV */
+    { 0x030c, 114, 2 },/* PLL_OP_MPY */
+    /* Output setup */
+    { IMX219_REG_LINE_LENGTH_A, IMX219_PPL_DEFAULT, 2 }, /* Line length */
+    { IMX219_REG_X_ODD_INC_A, 1, 1 },
+    { IMX219_REG_Y_ODD_INC_A, 1, 1 },
+    /* Undocumented registers */
+    { 0x455e, 0x00, 1 },
+    { 0x471e, 0x4b, 1 },
+    { 0x4767, 0x0f, 1 },
+    { 0x4750, 0x14, 1 },
+    { 0x4540, 0x00, 1 },
+    { 0x47b4, 0x14, 1 },
+    { 0x4713, 0x30, 1 },
+    { 0x478b, 0x10, 1 },
+    { 0x478f, 0x10, 1 },
+    { 0x4793, 0x10, 1 },
+    { 0x4797, 0x0e, 1 },
+    { 0x479b, 0x0e, 1 },
 };
 
 /* Private driver structure */
@@ -141,6 +188,20 @@ static int imx219_read_reg(struct i2c_client *client, u16 reg, u32 len, u32 *val
     case 2: *val = get_unaligned_be16(data); break;
     case 4: *val = get_unaligned_be32(data); break;
     default: return -EINVAL;
+    }
+    return 0;
+}
+
+/* Helper to write multiple registers */
+static int imx219_write_regs(struct i2c_client *client, const struct reg_sequence *regs, size_t count)
+{
+    int ret = 0;
+    for (size_t i = 0; i < count; i++) {
+        ret = imx219_write_reg(client, regs[i].reg, regs[i].len, regs[i].val);
+        if (ret) {
+            dev_err(&client->dev, "Failed to write reg 0x%04x: %d\n", regs[i].reg, ret);
+            return ret;
+        }
     }
     return 0;
 }
@@ -405,28 +466,36 @@ static int imx219_start_streaming(struct imx219_priv *priv)
 {
     struct i2c_client *client = v4l2_get_subdevdata(&priv->sd);
     int ret;
+    u32 bpp = (priv->fmt.code == MEDIA_BUS_FMT_SRGGB8_1X8 ||
+               priv->fmt.code == MEDIA_BUS_FMT_SGRBG8_1X8 ||
+               priv->fmt.code == MEDIA_BUS_FMT_SGBRG8_1X8 ||
+               priv->fmt.code == MEDIA_BUS_FMT_SBGGR8_1X8) ? 8 : 10;
 
     ret = pm_runtime_resume_and_get(&client->dev);
     if (ret < 0)
         return ret;
 
-    /* Basic PLL setup (from Driver 1) */
-    ret = imx219_write_reg(client, 0x0301, 1, 5);  // VTPXCK_DIV
-    ret |= imx219_write_reg(client, 0x0303, 1, 1); // VTSYCK_DIV
-    ret |= imx219_write_reg(client, 0x0304, 1, 3); // PREPLLCK_VT_DIV
-    ret |= imx219_write_reg(client, 0x0306, 2, 57); // PLL_VT_MPY
-    if (ret)
+    /* Write common registers */
+    ret = imx219_write_regs(client, imx219_common_regs, ARRAY_SIZE(imx219_common_regs));
+    if (ret) {
+        dev_err(&client->dev, "Failed to write common regs: %d\n", ret);
         goto err;
+    }
 
-    /* Lane configuration (2 lanes for simplicity) */
+    /* Lane configuration (hardcoded 2 lanes for now) */
     ret = imx219_write_reg(client, 0x0114, 1, 0x01); // 2-lane mode
     if (ret)
         goto err;
 
-    /* Output format */
-    ret = imx219_write_reg(client, 0x016c, 2, priv->fmt.width);
-    ret |= imx219_write_reg(client, 0x016e, 2, priv->fmt.height);
-    ret |= imx219_write_reg(client, 0x018c, 2, 0x0a0a); // 10-bit Bayer
+    /* Output format and cropping */
+    ret = imx219_write_reg(client, IMX219_REG_X_ADD_STA_A, 2, 8); // Crop start X
+    ret |= imx219_write_reg(client, IMX219_REG_X_ADD_END_A, 2, 8 + priv->fmt.width - 1);
+    ret |= imx219_write_reg(client, IMX219_REG_Y_ADD_STA_A, 2, 8); // Crop start Y
+    ret |= imx219_write_reg(client, IMX219_REG_Y_ADD_END_A, 2, 8 + priv->fmt.height - 1);
+    ret |= imx219_write_reg(client, IMX219_REG_X_OUTPUT_SIZE, 2, priv->fmt.width);
+    ret |= imx219_write_reg(client, IMX219_REG_Y_OUTPUT_SIZE, 2, priv->fmt.height);
+    ret |= imx219_write_reg(client, IMX219_REG_CSI_DATA_FORMAT_A, 2, (bpp << 8) | bpp);
+    ret |= imx219_write_reg(client, 0x0309, 1, bpp); // Adjust OPPXCK_DIV for bit depth
     if (ret)
         goto err;
 
@@ -443,7 +512,8 @@ static int imx219_start_streaming(struct imx219_priv *priv)
     __v4l2_ctrl_grab(priv->hflip, true);
     __v4l2_ctrl_grab(priv->vflip, true);
     priv->streaming = true;
-    dev_info(&client->dev, "Streaming started at %dx%d\n", priv->fmt.width, priv->fmt.height);
+    dev_info(&client->dev, "Streaming started at %dx%d, %d-bit Bayer\n",
+             priv->fmt.width, priv->fmt.height, bpp);
     return 0;
 
 err:
@@ -462,7 +532,7 @@ static int imx219_stop_streaming(struct imx219_priv *priv)
 
     __v4l2_ctrl_grab(priv->hflip, false);
     __v4l2_ctrl_grab(priv->vflip, false);
-
+    priv->streaming = false;
     pm_runtime_put(&client->dev);
     return ret;
 }
@@ -510,14 +580,14 @@ static const struct v4l2_subdev_ops imx219_ops = {
 
 /* Async notifier callbacks */
 static int imx219_async_bound(struct v4l2_async_notifier *notifier,
-    struct v4l2_subdev *subdev,
-    struct v4l2_async_subdev *asd)
+                              struct v4l2_subdev *subdev,
+                              struct v4l2_async_subdev *asd)
 {
-struct imx219_priv *priv = container_of(notifier, struct imx219_priv, notifier);
-struct i2c_client *client = v4l2_get_subdevdata(&priv->sd);
+    struct imx219_priv *priv = container_of(notifier, struct imx219_priv, notifier);
+    struct i2c_client *client = v4l2_get_subdevdata(&priv->sd);
 
-dev_info(&client->dev, "Async subdev bound successfully to %s\n", subdev->name);
-return 0;
+    dev_info(&client->dev, "Async subdev bound successfully to %s\n", subdev->name);
+    return 0;
 }
 
 static void imx219_async_unbind(struct v4l2_async_notifier *notifier,
@@ -592,6 +662,20 @@ static int imx219_probe(struct i2c_client *client)
         dev_err(dev, "Failed to power on: %d\n", ret);
         goto err_mutex;
     }
+
+    /* Stabilize sensor: Start and stop streaming */
+    ret = imx219_write_reg(client, IMX219_REG_MODE_SELECT, 1, IMX219_MODE_STREAMING);
+    if (ret) {
+        dev_err(dev, "Failed to start streaming for init: %d\n", ret);
+        goto err_power;
+    }
+    usleep_range(100, 110);
+    ret = imx219_write_reg(client, IMX219_REG_MODE_SELECT, 1, IMX219_MODE_STANDBY);
+    if (ret) {
+        dev_err(dev, "Failed to stop streaming for init: %d\n", ret);
+        goto err_power;
+    }
+    usleep_range(100, 110);
 
     for (int i = 0; i < 3; i++) {
         ret = imx219_read_reg(client, IMX219_REG_CHIP_ID, 2, &val);
