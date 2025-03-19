@@ -57,10 +57,11 @@
 
 /* Supported formats */
 static const u32 supported_codes[] = {
-    MEDIA_BUS_FMT_SRGGB10_1X10, MEDIA_BUS_FMT_SGRBG10_1X10,
-    MEDIA_BUS_FMT_SGBRG10_1X10, MEDIA_BUS_FMT_SBGGR10_1X10,
+    MEDIA_BUS_FMT_UYVY8_1X16,  /* Default to YUV422 for TI-CSI2RX compatibility */
     MEDIA_BUS_FMT_SRGGB8_1X8,  MEDIA_BUS_FMT_SGRBG8_1X8,
     MEDIA_BUS_FMT_SGBRG8_1X8,  MEDIA_BUS_FMT_SBGGR8_1X8,
+    MEDIA_BUS_FMT_SRGGB10_1X10, MEDIA_BUS_FMT_SGRBG10_1X10,
+    MEDIA_BUS_FMT_SGBRG10_1X10, MEDIA_BUS_FMT_SBGGR10_1X10,
 };
 
 /* Link frequency menu */
@@ -92,20 +93,17 @@ static const struct reg_sequence {
     u32 len;
 } imx219_common_regs[] = {
     { IMX219_REG_MODE_SELECT, IMX219_MODE_STANDBY, 1 }, /* Standby */
-    /* PLL Clock Table */
     { 0x0301, 5, 1 },  /* VTPXCK_DIV */
     { 0x0303, 1, 1 },  /* VTSYCK_DIV */
     { 0x0304, 3, 1 },  /* PREPLLCK_VT_DIV */
     { 0x0305, 3, 1 },  /* PREPLLCK_OP_DIV */
     { 0x0306, 57, 2 }, /* PLL_VT_MPY */
-    { 0x0309, 10, 1 }, /* OPPXCK_DIV (default 10-bit, adjusted later) */
+    { 0x0309, 8, 1 },  /* OPPXCK_DIV (8-bit YUV default) */
     { 0x030b, 1, 1 },  /* OPSYCK_DIV */
     { 0x030c, 114, 2 },/* PLL_OP_MPY */
-    /* Output setup */
-    { IMX219_REG_LINE_LENGTH_A, IMX219_PPL_DEFAULT, 2 }, /* Line length */
+    { IMX219_REG_LINE_LENGTH_A, IMX219_PPL_DEFAULT, 2 },
     { IMX219_REG_X_ODD_INC_A, 1, 1 },
     { IMX219_REG_Y_ODD_INC_A, 1, 1 },
-    /* Undocumented registers */
     { 0x455e, 0x00, 1 },
     { 0x471e, 0x4b, 1 },
     { 0x4767, 0x0f, 1 },
@@ -142,7 +140,7 @@ struct imx219_priv {
     struct mutex lock;
     bool streaming;
     struct v4l2_async_notifier notifier;
-    struct v4l2_async_subdev *asd; /* For async subdev */
+    struct v4l2_async_subdev *asd;
 };
 
 /* Register access functions */
@@ -192,7 +190,6 @@ static int imx219_read_reg(struct i2c_client *client, u16 reg, u32 len, u32 *val
     return 0;
 }
 
-/* Helper to write multiple registers */
 static int imx219_write_regs(struct i2c_client *client, const struct reg_sequence *regs, size_t count)
 {
     int ret = 0;
@@ -261,9 +258,8 @@ static u32 imx219_get_format_code(struct imx219_priv *priv, u32 code)
             break;
 
     if (i >= ARRAY_SIZE(supported_codes))
-        i = 0;
+        i = 0; /* Default to UYVY8_1X16 */
 
-    i = (i & ~3) | (priv->vflip->val ? 2 : 0) | (priv->hflip->val ? 1 : 0);
     return supported_codes[i];
 }
 
@@ -271,7 +267,7 @@ static void imx219_set_default_format(struct imx219_priv *priv)
 {
     priv->fmt.width = 1920;
     priv->fmt.height = 1080;
-    priv->fmt.code = MEDIA_BUS_FMT_SRGGB8_1X8;
+    priv->fmt.code = MEDIA_BUS_FMT_SRGGB8_1X8; /* Default to YUV422 */
     priv->fmt.field = V4L2_FIELD_NONE;
     priv->fmt.colorspace = V4L2_COLORSPACE_SRGB;
     priv->fmt.ycbcr_enc = V4L2_MAP_YCBCR_ENC_DEFAULT(V4L2_COLORSPACE_SRGB);
@@ -395,7 +391,7 @@ static int imx219_set_fmt(struct v4l2_subdev *sd, struct v4l2_subdev_state *stat
         if (supported_codes[code_index] == fmt->format.code)
             break;
     if (code_index >= ARRAY_SIZE(supported_codes))
-        code_index = 0;
+        code_index = 0; /* Default to UYVY8_1X16 */
 
     fmt->format.code = imx219_get_format_code(priv, supported_codes[code_index]);
 
@@ -431,11 +427,11 @@ static int imx219_enum_mbus_code(struct v4l2_subdev *sd, struct v4l2_subdev_stat
 {
     struct imx219_priv *priv = container_of(sd, struct imx219_priv, sd);
 
-    if (code->index >= ARRAY_SIZE(supported_codes) / 4)
+    if (code->index >= ARRAY_SIZE(supported_codes))
         return -EINVAL;
 
     mutex_lock(&priv->lock);
-    code->code = imx219_get_format_code(priv, supported_codes[code->index * 4]);
+    code->code = imx219_get_format_code(priv, supported_codes[code->index]);
     mutex_unlock(&priv->lock);
     return 0;
 }
@@ -466,54 +462,61 @@ static int imx219_start_streaming(struct imx219_priv *priv)
 {
     struct i2c_client *client = v4l2_get_subdevdata(&priv->sd);
     int ret;
-    u32 bpp = (priv->fmt.code == MEDIA_BUS_FMT_SRGGB8_1X8 ||
+    u32 bpp = (priv->fmt.code == MEDIA_BUS_FMT_UYVY8_1X16) ? 8 : /* YUV422 */
+              (priv->fmt.code == MEDIA_BUS_FMT_SRGGB8_1X8 || 
                priv->fmt.code == MEDIA_BUS_FMT_SGRBG8_1X8 ||
                priv->fmt.code == MEDIA_BUS_FMT_SGBRG8_1X8 ||
                priv->fmt.code == MEDIA_BUS_FMT_SBGGR8_1X8) ? 8 : 10;
 
     ret = pm_runtime_resume_and_get(&client->dev);
-    if (ret < 0)
+    if (ret < 0) {
+        dev_err(&client->dev, "Failed to resume power: %d\n", ret);
         return ret;
+    }
 
-    /* Write common registers */
     ret = imx219_write_regs(client, imx219_common_regs, ARRAY_SIZE(imx219_common_regs));
     if (ret) {
         dev_err(&client->dev, "Failed to write common regs: %d\n", ret);
         goto err;
     }
 
-    /* Lane configuration (hardcoded 2 lanes for now) */
     ret = imx219_write_reg(client, 0x0114, 1, 0x01); // 2-lane mode
-    if (ret)
+    if (ret) {
+        dev_err(&client->dev, "Failed to set 2-lane mode: %d\n", ret);
         goto err;
+    }
 
-    /* Output format and cropping */
-    ret = imx219_write_reg(client, IMX219_REG_X_ADD_STA_A, 2, 8); // Crop start X
+    /* Cropping and output size */
+    ret = imx219_write_reg(client, IMX219_REG_X_ADD_STA_A, 2, 8);
     ret |= imx219_write_reg(client, IMX219_REG_X_ADD_END_A, 2, 8 + priv->fmt.width - 1);
-    ret |= imx219_write_reg(client, IMX219_REG_Y_ADD_STA_A, 2, 8); // Crop start Y
+    ret |= imx219_write_reg(client, IMX219_REG_Y_ADD_STA_A, 2, 8);
     ret |= imx219_write_reg(client, IMX219_REG_Y_ADD_END_A, 2, 8 + priv->fmt.height - 1);
     ret |= imx219_write_reg(client, IMX219_REG_X_OUTPUT_SIZE, 2, priv->fmt.width);
     ret |= imx219_write_reg(client, IMX219_REG_Y_OUTPUT_SIZE, 2, priv->fmt.height);
     ret |= imx219_write_reg(client, IMX219_REG_CSI_DATA_FORMAT_A, 2, (bpp << 8) | bpp);
-    ret |= imx219_write_reg(client, 0x0309, 1, bpp); // Adjust OPPXCK_DIV for bit depth
-    if (ret)
+    ret |= imx219_write_reg(client, 0x0309, 1, bpp);
+    if (ret) {
+        dev_err(&client->dev, "Failed to configure cropping/output: %d\n", ret);
         goto err;
+    }
 
-    /* Apply controls (VTS, exposure, etc.) */
     ret = __v4l2_ctrl_handler_setup(&priv->ctrl_handler);
-    if (ret)
+    if (ret) {
+        dev_err(&client->dev, "Failed to apply controls: %d\n", ret);
         goto err;
+    }
 
-    /* Start streaming */
     ret = imx219_write_reg(client, IMX219_REG_MODE_SELECT, 1, IMX219_MODE_STREAMING);
-    if (ret)
+    if (ret) {
+        dev_err(&client->dev, "Failed to start streaming: %d\n", ret);
         goto err;
+    }
 
     __v4l2_ctrl_grab(priv->hflip, true);
     __v4l2_ctrl_grab(priv->vflip, true);
     priv->streaming = true;
-    dev_info(&client->dev, "Streaming started at %dx%d, %d-bit Bayer\n",
-             priv->fmt.width, priv->fmt.height, bpp);
+    dev_info(&client->dev, "Streaming started at %dx%d, format code 0x%x\n",
+             priv->fmt.width, priv->fmt.height, priv->fmt.code);
     return 0;
 
 err:
@@ -663,19 +666,23 @@ static int imx219_probe(struct i2c_client *client)
         goto err_mutex;
     }
 
-    /* Stabilize sensor: Start and stop streaming */
-    ret = imx219_write_reg(client, IMX219_REG_MODE_SELECT, 1, IMX219_MODE_STREAMING);
-    if (ret) {
-        dev_err(dev, "Failed to start streaming for init: %d\n", ret);
-        goto err_power;
+    /* Try stabilization with retries, skip if it fails */
+    for (int i = 0; i < 3; i++) {
+        ret = imx219_write_reg(client, IMX219_REG_MODE_SELECT, 1, IMX219_MODE_STREAMING);
+        if (!ret) {
+            usleep_range(100, 110);
+            ret = imx219_write_reg(client, IMX219_REG_MODE_SELECT, 1, IMX219_MODE_STANDBY);
+            if (!ret)
+                break;
+            dev_err(dev, "Failed to stop streaming for init: %d\n", ret);
+        } else {
+            dev_err(dev, "Failed to start streaming for init: %d\n", ret);
+        }
+        usleep_range(5000, 6000);
     }
-    usleep_range(100, 110);
-    ret = imx219_write_reg(client, IMX219_REG_MODE_SELECT, 1, IMX219_MODE_STANDBY);
     if (ret) {
-        dev_err(dev, "Failed to stop streaming for init: %d\n", ret);
-        goto err_power;
+        dev_warn(dev, "Stabilization failed, proceeding anyway: %d\n", ret);
     }
-    usleep_range(100, 110);
 
     for (int i = 0; i < 3; i++) {
         ret = imx219_read_reg(client, IMX219_REG_CHIP_ID, 2, &val);
@@ -697,7 +704,6 @@ static int imx219_probe(struct i2c_client *client)
         goto err_power;
     }
 
-    /* Media entity setup */
     priv->pad.flags = MEDIA_PAD_FL_SOURCE;
     sd->entity.function = MEDIA_ENT_F_CAM_SENSOR;
     ret = media_entity_pads_init(&sd->entity, 1, &priv->pad);
@@ -706,7 +712,6 @@ static int imx219_probe(struct i2c_client *client)
         goto err_ctrl;
     }
 
-    /* Parse device tree endpoint for async binding */
     fwnode = fwnode_graph_get_next_endpoint(dev_fwnode(dev), NULL);
     if (!fwnode) {
         dev_err(dev, "Failed to get endpoint fwnode\n");
@@ -714,11 +719,9 @@ static int imx219_probe(struct i2c_client *client)
         goto err_media;
     }
 
-    /* Initialize async notifier */
     v4l2_async_nf_init(&priv->notifier);
     priv->notifier.ops = &imx219_async_ops;
 
-    /* Add async subdev using fwnode */
     priv->asd = v4l2_async_nf_add_fwnode(&priv->notifier, fwnode,
                                          struct v4l2_async_subdev);
     if (IS_ERR(priv->asd)) {
@@ -738,8 +741,6 @@ static int imx219_probe(struct i2c_client *client)
         dev_err(dev, "Failed to register async notifier: %d\n", ret);
         fwnode_handle_put(fwnode);
         goto err_notifier;
-    } else {
-        dev_info(dev, "Async notifier registered successfully\n");
     }
 
     pm_runtime_set_active(dev);
