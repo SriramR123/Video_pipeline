@@ -57,7 +57,6 @@
 
 /* Supported formats */
 static const u32 supported_codes[] = {
-    MEDIA_BUS_FMT_UYVY8_1X16,  /* Default to YUV422 for TI-CSI2RX compatibility */
     MEDIA_BUS_FMT_SRGGB8_1X8,  MEDIA_BUS_FMT_SGRBG8_1X8,
     MEDIA_BUS_FMT_SGBRG8_1X8,  MEDIA_BUS_FMT_SBGGR8_1X8,
     MEDIA_BUS_FMT_SRGGB10_1X10, MEDIA_BUS_FMT_SGRBG10_1X10,
@@ -98,7 +97,6 @@ static const struct reg_sequence {
     { 0x0304, 3, 1 },  /* PREPLLCK_VT_DIV */
     { 0x0305, 3, 1 },  /* PREPLLCK_OP_DIV */
     { 0x0306, 57, 2 }, /* PLL_VT_MPY */
-    { 0x0309, 8, 1 },  /* OPPXCK_DIV (8-bit YUV default) */
     { 0x030b, 1, 1 },  /* OPSYCK_DIV */
     { 0x030c, 114, 2 },/* PLL_OP_MPY */
     { IMX219_REG_LINE_LENGTH_A, IMX219_PPL_DEFAULT, 2 },
@@ -267,7 +265,7 @@ static void imx219_set_default_format(struct imx219_priv *priv)
 {
     priv->fmt.width = 1920;
     priv->fmt.height = 1080;
-    priv->fmt.code = MEDIA_BUS_FMT_SRGGB8_1X8; /* Default to YUV422 */
+    priv->fmt.code = MEDIA_BUS_FMT_SRGGB8_1X8; 
     priv->fmt.field = V4L2_FIELD_NONE;
     priv->fmt.colorspace = V4L2_COLORSPACE_SRGB;
     priv->fmt.ycbcr_enc = V4L2_MAP_YCBCR_ENC_DEFAULT(V4L2_COLORSPACE_SRGB);
@@ -462,11 +460,10 @@ static int imx219_start_streaming(struct imx219_priv *priv)
 {
     struct i2c_client *client = v4l2_get_subdevdata(&priv->sd);
     int ret;
-    u32 bpp = (priv->fmt.code == MEDIA_BUS_FMT_UYVY8_1X16) ? 8 : /* YUV422 */
-              (priv->fmt.code == MEDIA_BUS_FMT_SRGGB8_1X8 || 
-               priv->fmt.code == MEDIA_BUS_FMT_SGRBG8_1X8 ||
-               priv->fmt.code == MEDIA_BUS_FMT_SGBRG8_1X8 ||
-               priv->fmt.code == MEDIA_BUS_FMT_SBGGR8_1X8) ? 8 : 10;
+    u32 bpp = (priv->fmt.code == MEDIA_BUS_FMT_SRGGB8_1X8 || 
+        priv->fmt.code == MEDIA_BUS_FMT_SGRBG8_1X8 ||
+        priv->fmt.code == MEDIA_BUS_FMT_SGBRG8_1X8 ||
+        priv->fmt.code == MEDIA_BUS_FMT_SBGGR8_1X8) ? 8 : 10;
 
     ret = pm_runtime_resume_and_get(&client->dev);
     if (ret < 0) {
