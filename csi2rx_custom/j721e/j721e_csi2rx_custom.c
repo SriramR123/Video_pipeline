@@ -4,11 +4,13 @@
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
+#include <media/v4l2-fwnode.h>
 #include <media/mipi-csi2.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
 #include <media/v4l2-mc.h>
 #include <media/videobuf2-dma-contig.h>
+
 
 #define TI_CSI2RX_MODULE_NAME "ti-csi2rx-custom"
 
@@ -269,7 +271,7 @@ static int ti_csi2rx_start_streaming(struct vb2_queue *vq, unsigned int count) {
     }
     spin_unlock_irqrestore(&csi->dma.lock, flags);
 
-    ret = media_pipeline_start(&csi->vdev.entity, &csi->pipe);
+    ret = media_pipeline_start(&csi->pad, &csi->pipe);
     if (ret)
         goto err_pipe;
 
@@ -281,7 +283,7 @@ static int ti_csi2rx_start_streaming(struct vb2_queue *vq, unsigned int count) {
     return 0;
 
 err_stream:
-    media_pipeline_stop(&csi->vdev.entity);
+    media_pipeline_stop(&csi->pad);
 err_pipe:
     spin_lock_irqsave(&csi->dma.lock, flags);
 err_dma:
@@ -306,7 +308,7 @@ static void ti_csi2rx_stop_streaming(struct vb2_queue *vq) {
 
     mutex_lock(&csi->mutex);
     v4l2_subdev_call(csi->source, video, s_stream, 0);
-    media_pipeline_stop(&csi->vdev.entity);
+    media_pipeline_stop(&csi->pad);
 
     spin_lock_irqsave(&csi->dma.lock, flags);
     csi->dma.state = TI_CSI2RX_DMA_STOPPED;
@@ -344,7 +346,7 @@ static int ti_csi2rx_buffer_prepare(struct vb2_buffer *vb) {
         dev_err(csi->dev, "Buffer too small: %lu < %lu\n", vb2_plane_size(vb, 0), size);
         return -EINVAL;
     }
-    vb2_set_plane_size(vb, 0, size);
+    vb2_set_plane_payload(vb, 0, size);
     return 0;
 }
 
@@ -482,15 +484,15 @@ err_entity:
 
 /* Async notifier operations */
 static int ti_csi2rx_notify_bound(struct v4l2_async_notifier *notifier,
-                                  struct v4l2_subdev *subdev,
-                                  struct v4l2_async_connection *asd) {
-    struct ti_csi2rx_dev *csi = container_of(notifier, struct ti_csi2rx_dev, notifier);
-    struct media_entity *source = &subdev->entity;
-    struct media_entity *sink = &csi->vdev.entity;
+    struct v4l2_subdev *subdev,
+    struct v4l2_async_subdev *asd) {
+struct ti_csi2rx_dev *csi = container_of(notifier, struct ti_csi2rx_dev, notifier);
+struct media_entity *source = &subdev->entity;
+struct media_entity *sink = &csi->vdev.entity;
 
-    csi->source = subdev;
-    return media_create_pad_link(source, asd->match.fwnode->id, sink, 0,
-                                 MEDIA_LNK_FL_ENABLED | MEDIA_LNK_FL_IMMUTABLE);
+csi->source = subdev;
+return media_create_pad_link(source, 0, sink, 0,
+   MEDIA_LNK_FL_ENABLED | MEDIA_LNK_FL_IMMUTABLE);
 }
 
 static const struct v4l2_async_notifier_operations ti_csi2rx_notifier_ops = {
@@ -502,7 +504,7 @@ static int ti_csi2rx_probe(struct platform_device *pdev) {
     struct ti_csi2rx_dev *csi;
     struct fwnode_handle *fwnode;
     struct v4l2_fwnode_endpoint ep = { .bus_type = V4L2_MBUS_CSI2_DPHY };
-    struct v4l2_async_connection *asd;
+    struct v4l2_async_subdev *asd;  /* Changed from v4l2_async_connection */
     int ret;
 
     csi = devm_kzalloc(&pdev->dev, sizeof(*csi), GFP_KERNEL);
@@ -521,12 +523,14 @@ static int ti_csi2rx_probe(struct platform_device *pdev) {
         return PTR_ERR(csi->shim);
 
     csi->dma.chan = dma_request_chan(&pdev->dev, "rx0");
-    if (IS_ERR(csi->dma.chan))
+    if (IS_ERR(csi->dma.chan)) {
         return PTR_ERR(csi->dma.chan);
+    }
 
     fwnode = fwnode_graph_get_next_endpoint(dev_fwnode(&pdev->dev), NULL);
     if (!fwnode)
         return -EINVAL;
+
     ret = v4l2_fwnode_endpoint_parse(fwnode, &ep);
     if (ret)
         goto err_fwnode;
@@ -546,21 +550,23 @@ static int ti_csi2rx_probe(struct platform_device *pdev) {
     csi->vidq.timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
     csi->vidq.lock = &csi->mutex;
     ret = vb2_queue_init(&csi->vidq);
-    if (ret)
+    if (ret) {
         goto err_fwnode;
+    }
 
     ret = ti_csi2rx_init_v4l2(csi);
-    if (ret)
+    if (ret) {
         goto err_fwnode;
+    }
 
-    v4l2_async_nf_init(&csi->notifier, &csi->v4l2_dev);
-    asd = v4l2_async_nf_add_fwnode(&csi->notifier, fwnode, struct v4l2_async_connection);
+    v4l2_async_nf_init(&csi->notifier);
+    asd = v4l2_async_nf_add_fwnode(&csi->notifier, fwnode, struct v4l2_async_subdev);
     if (IS_ERR(asd)) {
         ret = PTR_ERR(asd);
         goto err_media;
     }
     csi->notifier.ops = &ti_csi2rx_notifier_ops;
-    ret = v4l2_async_nf_register(&csi->notifier);
+    ret = v4l2_async_nf_register(&csi->v4l2_dev, &csi->notifier);
     if (ret)
         goto err_notifier;
 

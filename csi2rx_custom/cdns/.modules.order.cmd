@@ -1,0 +1,1 @@
+cmd_/home/mcw/Video_pipeline/csi2rx_custom/cdns/modules.order := {   echo /home/mcw/Video_pipeline/csi2rx_custom/cdns/cdns_csi2rx_custom.ko; :; } > /home/mcw/Video_pipeline/csi2rx_custom/cdns/modules.order

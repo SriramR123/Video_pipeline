@@ -1,0 +1,1 @@
+cmd_/home/mcw/Video_pipeline/csi2rx_custom/cdns/cdns_csi2rx_custom.mod := printf '%s\n'   cdns_csi2rx_custom.o | awk '!x[$$0]++ { print("/home/mcw/Video_pipeline/csi2rx_custom/cdns/"$$0) }' > /home/mcw/Video_pipeline/csi2rx_custom/cdns/cdns_csi2rx_custom.mod

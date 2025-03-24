@@ -3,6 +3,7 @@
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/of_graph.h>
 #include <linux/platform_device.h>
 #include <media/v4l2-subdev.h>
 #include <media/v4l2-fwnode.h>
@@ -34,7 +35,6 @@ struct csi2rx_fmt {
     u8 bpp;
 };
 
-/* Formats supported by custom IMX219 */
 static const struct csi2rx_fmt formats[] = {
     { MEDIA_BUS_FMT_SRGGB8_1X8,  8  },
     { MEDIA_BUS_FMT_SGRBG8_1X8,  8  },
@@ -60,6 +60,7 @@ struct csi2rx_priv {
     int source_pad;
     u8 lanes[CSI2RX_LANES_MAX];
     u8 num_lanes;
+    struct v4l2_mbus_framefmt format;
 };
 
 /* Format handling */
@@ -161,41 +162,21 @@ static int csi2rx_enum_mbus_code(struct v4l2_subdev *subdev, struct v4l2_subdev_
 
 static int csi2rx_get_fmt(struct v4l2_subdev *subdev, struct v4l2_subdev_state *state,
                           struct v4l2_subdev_format *format) {
-    struct v4l2_mbus_framefmt *fmt;
-
-    fmt = v4l2_subdev_state_get_format(state, format->pad);
-    format->format = *fmt;
+    struct csi2rx_priv *csi2rx = v4l2_subdev_to_csi2rx(subdev);
+    format->format = csi2rx->format;
     return 0;
 }
 
 static int csi2rx_set_fmt(struct v4l2_subdev *subdev, struct v4l2_subdev_state *state,
                           struct v4l2_subdev_format *format) {
-    struct v4l2_mbus_framefmt *fmt;
-
+    struct csi2rx_priv *csi2rx = v4l2_subdev_to_csi2rx(subdev);
     if (format->pad != CSI2RX_PAD_SINK)
         return csi2rx_get_fmt(subdev, state, format);
     if (!csi2rx_get_fmt_by_code(format->format.code))
         format->format.code = formats[0].code; /* Default SRGGB8 */
     format->format.field = V4L2_FIELD_NONE;
-    fmt = v4l2_subdev_state_get_format(state, CSI2RX_PAD_SINK);
-    *fmt = format->format;
-    fmt = v4l2_subdev_state_get_format(state, CSI2RX_PAD_SOURCE_STREAM0);
-    *fmt = format->format;
+    csi2rx->format = format->format;
     return 0;
-}
-
-static int csi2rx_init_state(struct v4l2_subdev *subdev, struct v4l2_subdev_state *state) {
-    struct v4l2_subdev_format format = {
-        .pad = CSI2RX_PAD_SINK,
-        .format = {
-            .width = 1920,
-            .height = 1080,
-            .code = MEDIA_BUS_FMT_SRGGB8_1X8,
-            .field = V4L2_FIELD_NONE,
-            .colorspace = V4L2_COLORSPACE_SRGB,
-        },
-    };
-    return csi2rx_set_fmt(subdev, state, &format);
 }
 
 static const struct v4l2_subdev_pad_ops csi2rx_pad_ops = {
@@ -213,14 +194,10 @@ static const struct v4l2_subdev_ops csi2rx_subdev_ops = {
     .pad = &csi2rx_pad_ops,
 };
 
-static const struct v4l2_subdev_internal_ops csi2rx_internal_ops = {
-    .init_state = csi2rx_init_state,
-};
-
 /* Async notifier operations */
 static int csi2rx_notify_bound(struct v4l2_async_notifier *notifier,
                                struct v4l2_subdev *subdev,
-                               struct v4l2_async_connection *asd) {
+                               struct v4l2_async_subdev *asd) {
     struct csi2rx_priv *csi2rx = container_of(notifier, struct csi2rx_priv, notifier);
     int source_pad;
 
@@ -243,7 +220,7 @@ static const struct v4l2_async_notifier_operations csi2rx_notifier_ops = {
 /* Device tree parsing and probe */
 static int csi2rx_parse_dt(struct csi2rx_priv *csi2rx) {
     struct v4l2_fwnode_endpoint v4l2_ep = { .bus_type = V4L2_MBUS_CSI2_DPHY };
-    struct v4l2_async_connection *asd;
+    struct v4l2_async_subdev *asd;
     struct device_node *ep;
     struct fwnode_handle *fwh;
     int ret;
@@ -262,15 +239,15 @@ static int csi2rx_parse_dt(struct csi2rx_priv *csi2rx) {
     memcpy(csi2rx->lanes, v4l2_ep.bus.mipi_csi2.data_lanes, sizeof(csi2rx->lanes));
     csi2rx->num_lanes = 2;
 
-    v4l2_async_subdev_nf_init(&csi2rx->notifier, &csi2rx->subdev);
-    asd = v4l2_async_nf_add_fwnode_remote(&csi2rx->notifier, fwh, struct v4l2_async_connection);
+    v4l2_async_nf_init(&csi2rx->notifier);
+    asd = v4l2_async_nf_add_fwnode(&csi2rx->notifier, fwh, struct v4l2_async_subdev);
     of_node_put(ep);
     if (IS_ERR(asd)) {
         v4l2_async_nf_cleanup(&csi2rx->notifier);
         return PTR_ERR(asd);
     }
     csi2rx->notifier.ops = &csi2rx_notifier_ops;
-    ret = v4l2_async_nf_register(&csi2rx->notifier);
+    ret = v4l2_async_subdev_nf_register(&csi2rx->subdev, &csi2rx->notifier);
     if (ret)
         v4l2_async_nf_cleanup(&csi2rx->notifier);
     return ret;
@@ -309,6 +286,13 @@ static int csi2rx_probe(struct platform_device *pdev) {
         goto err_free;
     }
 
+    /* Initialize default format */
+    csi2rx->format.width = 1920;
+    csi2rx->format.height = 1080;
+    csi2rx->format.code = MEDIA_BUS_FMT_SRGGB8_1X8;
+    csi2rx->format.field = V4L2_FIELD_NONE;
+    csi2rx->format.colorspace = V4L2_COLORSPACE_SRGB;
+
     ret = csi2rx_parse_dt(csi2rx);
     if (ret)
         goto err_free;
@@ -316,7 +300,6 @@ static int csi2rx_probe(struct platform_device *pdev) {
     csi2rx->subdev.owner = THIS_MODULE;
     csi2rx->subdev.dev = &pdev->dev;
     v4l2_subdev_init(&csi2rx->subdev, &csi2rx_subdev_ops);
-    csi2rx->subdev.internal_ops = &csi2rx_internal_ops;
     snprintf(csi2rx->subdev.name, sizeof(csi2rx->subdev.name), "cdns-csi2rx-imx219");
     csi2rx->subdev.entity.function = MEDIA_ENT_F_VID_IF_BRIDGE;
     csi2rx->pads[CSI2RX_PAD_SINK].flags = MEDIA_PAD_FL_SINK;
@@ -326,17 +309,12 @@ static int csi2rx_probe(struct platform_device *pdev) {
     ret = media_entity_pads_init(&csi2rx->subdev.entity, CSI2RX_PAD_MAX, csi2rx->pads);
     if (ret)
         goto err_cleanup;
-    ret = v4l2_subdev_init_finalize(&csi2rx->subdev);
-    if (ret)
-        goto err_cleanup;
     ret = v4l2_async_register_subdev(&csi2rx->subdev);
     if (ret < 0)
-        goto err_free_state;
+        goto err_cleanup;
 
     return 0;
 
-err_free_state:
-    v4l2_subdev_cleanup(&csi2rx->subdev);
 err_cleanup:
     v4l2_async_nf_unregister(&csi2rx->notifier);
     v4l2_async_nf_cleanup(&csi2rx->notifier);
@@ -352,7 +330,6 @@ static int csi2rx_remove(struct platform_device *pdev) {
     v4l2_async_nf_unregister(&csi2rx->notifier);
     v4l2_async_nf_cleanup(&csi2rx->notifier);
     v4l2_async_unregister_subdev(&csi2rx->subdev);
-    v4l2_subdev_cleanup(&csi2rx->subdev);
     media_entity_cleanup(&csi2rx->subdev.entity);
     mutex_destroy(&csi2rx->lock);
     kfree(csi2rx);
