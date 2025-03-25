@@ -1,1 +1,0 @@
-cmd_/home/mcw/Video_pipeline/csi2rx_custom/j721e/j721e_csi2rx_custom.mod := printf '%s\n'   j721e_csi2rx_custom.o | awk '!x[$$0]++ { print("/home/mcw/Video_pipeline/csi2rx_custom/j721e/"$$0) }' > /home/mcw/Video_pipeline/csi2rx_custom/j721e/j721e_csi2rx_custom.mod
