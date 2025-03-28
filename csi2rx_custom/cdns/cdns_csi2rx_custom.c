@@ -63,24 +63,16 @@
      u8  bpp;
  };
  
- /* Format array compatible with IMX219 supported_codes */
+ /* Format array compatible with custom IMX219 */
  static const struct csi2rx_fmt formats[] = {
-     { .code = MEDIA_BUS_FMT_YUYV8_1X16, .bpp = 16, },
-     { .code = MEDIA_BUS_FMT_UYVY8_1X16, .bpp = 16, },
-     { .code = MEDIA_BUS_FMT_YVYU8_1X16, .bpp = 16, },
-     { .code = MEDIA_BUS_FMT_VYUY8_1X16, .bpp = 16, },
-     { .code = MEDIA_BUS_FMT_SBGGR8_1X8, .bpp = 8, },  // Matches IMX219
-     { .code = MEDIA_BUS_FMT_SGBRG8_1X8, .bpp = 8, },  // Matches IMX219
-     { .code = MEDIA_BUS_FMT_SGRBG8_1X8, .bpp = 8, },  // Matches IMX219
-     { .code = MEDIA_BUS_FMT_SRGGB8_1X8, .bpp = 8, },  // Matches IMX219
-     { .code = MEDIA_BUS_FMT_Y8_1X8,     .bpp = 8, },
-     { .code = MEDIA_BUS_FMT_SBGGR10_1X10, .bpp = 10, }, // Matches IMX219
-     { .code = MEDIA_BUS_FMT_SGBRG10_1X10, .bpp = 10, }, // Matches IMX219
-     { .code = MEDIA_BUS_FMT_SGRBG10_1X10, .bpp = 10, }, // Matches IMX219
-     { .code = MEDIA_BUS_FMT_SRGGB10_1X10, .bpp = 10, }, // Matches IMX219
-     { .code = MEDIA_BUS_FMT_RGB565_1X16,  .bpp = 16, },
-     { .code = MEDIA_BUS_FMT_RGB888_1X24,  .bpp = 24, },
-     { .code = MEDIA_BUS_FMT_BGR888_1X24,  .bpp = 24, },
+     { .code = MEDIA_BUS_FMT_SBGGR8_1X8, .bpp = 8 },
+     { .code = MEDIA_BUS_FMT_SGBRG8_1X8, .bpp = 8 },
+     { .code = MEDIA_BUS_FMT_SGRBG8_1X8, .bpp = 8 },
+     { .code = MEDIA_BUS_FMT_SRGGB8_1X8, .bpp = 8 },
+     { .code = MEDIA_BUS_FMT_SBGGR10_1X10, .bpp = 10 },
+     { .code = MEDIA_BUS_FMT_SGBRG10_1X10, .bpp = 10 },
+     { .code = MEDIA_BUS_FMT_SGRBG10_1X10, .bpp = 10 },
+     { .code = MEDIA_BUS_FMT_SRGGB10_1X10, .bpp = 10 },
  };
  
  struct csi2rx_priv {
@@ -96,7 +88,7 @@
      struct reset_control    *pixel_rst[CSI2RX_STREAMS_MAX];
      struct phy              *dphy;
      u8                      lanes[CSI2RX_LANES_MAX];
-     u8                      num_lanes; // Configurable via DT, set to 2 for IMX219
+     u8                      num_lanes; // Hardcoded to 2 for IMX219
      u8                      max_lanes;
      u8                      max_streams;
      bool                    has_internal_dphy;
@@ -126,10 +118,9 @@
      unsigned int i;
      writel(CSI2RX_SOFT_RESET_PROTOCOL | CSI2RX_SOFT_RESET_FRONT,
             csi2rx->base + CSI2RX_SOFT_RESET_REG);
-     for (i = 0; i < csi2rx->max_streams; i++) {
+     for (i = 0; i < csi2rx->max_streams; i++)
          writel(CSI2RX_STREAM_CTRL_SOFT_RST,
                 csi2rx->base + CSI2RX_STREAM_CTRL_REG(i));
-     }
      usleep_range(10, 20);
      writel(0, csi2rx->base + CSI2RX_SOFT_RESET_REG);
      for (i = 0; i < csi2rx->max_streams; i++)
@@ -140,38 +131,45 @@
  {
      union phy_configure_opts opts = { };
      struct phy_configure_opts_mipi_dphy *cfg = &opts.mipi_dphy;
-     struct v4l2_subdev_format sd_fmt = {
-         .which  = V4L2_SUBDEV_FORMAT_ACTIVE,
-         .pad    = CSI2RX_PAD_SINK,
-     };
-     const struct csi2rx_fmt *fmt;
-     s64 link_freq;
+     struct v4l2_subdev_state *state;
+     struct v4l2_mbus_framefmt *fmt;
+     const struct csi2rx_fmt *csi_fmt;
+     s64 link_freq = 456000000; // Fixed for IMX219 2-lane at 456 MHz
      int ret;
  
-     ret = v4l2_subdev_call_state_active(&csi2rx->subdev, pad, get_fmt, &sd_fmt);
-     if (ret < 0)
-         return ret;
+     state = v4l2_subdev_lock_and_get_active_state(&csi2rx->subdev);
+     if (!state)
+         return -EINVAL;
  
-     fmt = csi2rx_get_fmt_by_code(sd_fmt.format.code);
-     link_freq = v4l2_get_link_freq(csi2rx->source_subdev->ctrl_handler,
-                                    fmt->bpp, 2 * csi2rx->num_lanes); // Matches IMX219 456MHz
-     if (link_freq < 0)
-         return link_freq;
+     fmt = v4l2_subdev_state_get_format(state, CSI2RX_PAD_SINK);
+     if (!fmt) {
+         v4l2_subdev_unlock_state(state);
+         return -EINVAL;
+     }
  
-     ret = phy_mipi_dphy_get_default_config_for_hsclk(link_freq, csi2rx->num_lanes, cfg);
-     if (ret)
-         return ret;
+     csi_fmt = csi2rx_get_fmt_by_code(fmt->code);
+     if (!csi_fmt) {
+         v4l2_subdev_unlock_state(state);
+         return -EINVAL;
+     }
  
-     ret = phy_power_on(csi2rx->dphy);
-     if (ret)
-         return ret;
- 
-     ret = phy_configure(csi2rx->dphy, &opts);
+     ret = phy_mipi_dphy_get_default_config_for_hsclk(link_freq, 2, cfg);
      if (ret) {
-         phy_power_off(csi2rx->dphy);
+         v4l2_subdev_unlock_state(state);
          return ret;
      }
-     return 0;
+ 
+     ret = phy_power_on(csi2rx->dphy);
+     if (ret) {
+         v4l2_subdev_unlock_state(state);
+         return ret;
+     }
+ 
+     ret = phy_configure(csi2rx->dphy, &opts);
+     v4l2_subdev_unlock_state(state);
+     if (ret)
+         phy_power_off(csi2rx->dphy);
+     return ret;
  }
  
  static int csi2rx_start(struct csi2rx_priv *csi2rx)
@@ -188,7 +186,8 @@
      reset_control_deassert(csi2rx->p_rst);
      csi2rx_reset(csi2rx);
  
-     reg = csi2rx->num_lanes << 8; // Set to 2 for IMX219
+     csi2rx->num_lanes = 2; // Hardcode to 2 lanes for IMX219
+     reg = csi2rx->num_lanes << 8;
      for (i = 0; i < csi2rx->num_lanes; i++) {
          reg |= CSI2RX_STATIC_CFG_DLANE_MAP(i, csi2rx->lanes[i]);
          set_bit(csi2rx->lanes[i], &lanes_used);
@@ -234,7 +233,7 @@
          goto err_disable_pixclk;
  
      reset_control_deassert(csi2rx->sys_rst);
-     ret = v4l2_subdev_call(csi2rx->source_subdev, video, s_stream, true); // Calls IMX219 s_stream
+     ret = v4l2_subdev_call(csi2rx->source_subdev, video, s_stream, true);
      if (ret)
          goto err_disable_sysclk;
  
@@ -295,7 +294,14 @@
  static int csi2rx_s_stream(struct v4l2_subdev *subdev, int enable)
  {
      struct csi2rx_priv *csi2rx = v4l2_subdev_to_csi2rx(subdev);
+     struct v4l2_subdev_state *state;
      int ret = 0;
+ 
+     state = v4l2_subdev_lock_and_get_active_state(subdev);
+     if (!state) {
+         dev_err(csi2rx->dev, "Failed to lock subdev state\n");
+         return -EINVAL;
+     }
  
      mutex_lock(&csi2rx->lock);
      if (enable) {
@@ -312,16 +318,17 @@
      }
  out:
      mutex_unlock(&csi2rx->lock);
+     v4l2_subdev_unlock_state(state);
      return ret;
  }
  
  static int csi2rx_enum_mbus_code(struct v4l2_subdev *subdev,
                                   struct v4l2_subdev_state *state,
-                                  struct v4l2_subdev_mbus_code_enum *code_enum)
+                                  struct v4l2_subdev_mbus_code_enum *code)
  {
-     if (code_enum->index >= ARRAY_SIZE(formats))
+     if (code->index >= ARRAY_SIZE(formats))
          return -EINVAL;
-     code_enum->code = formats[code_enum->index].code;
+     code->code = formats[code->index].code;
      return 0;
  }
  
@@ -332,18 +339,23 @@
      struct v4l2_mbus_framefmt *fmt;
      unsigned int i;
  
-     if (format->pad != CSI2RX_PAD_S cah)
+     if (format->pad != CSI2RX_PAD_SINK)
          return v4l2_subdev_get_fmt(subdev, state, format);
  
      if (!csi2rx_get_fmt_by_code(format->format.code))
          format->format.code = formats[0].code;
  
      format->format.field = V4L2_FIELD_NONE;
+ 
      fmt = v4l2_subdev_state_get_format(state, format->pad);
+     if (!fmt)
+         return -EINVAL;
      *fmt = format->format;
  
      for (i = CSI2RX_PAD_SOURCE_STREAM0; i < CSI2RX_PAD_MAX; i++) {
          fmt = v4l2_subdev_state_get_format(state, i);
+         if (!fmt)
+             return -EINVAL;
          *fmt = format->format;
      }
      return 0;
@@ -352,12 +364,13 @@
  static int csi2rx_init_state(struct v4l2_subdev *subdev,
                               struct v4l2_subdev_state *state)
  {
-     struct v4l2_subdev_format format = {
+     struct v4l2_subdev_format fmt = {
+         .which = V4L2_SUBDEV_FORMAT_TRY,
          .pad = CSI2RX_PAD_SINK,
          .format = {
-             .width = 640,
-             .height = 480,
-             .code = MEDIA_BUS_FMT_UYVY8_1X16,
+             .width = 1920,
+             .height = 1080,
+             .code = MEDIA_BUS_FMT_SRGGB8_1X8,
              .field = V4L2_FIELD_NONE,
              .colorspace = V4L2_COLORSPACE_SRGB,
              .ycbcr_enc = V4L2_YCBCR_ENC_601,
@@ -365,7 +378,16 @@
              .xfer_func = V4L2_XFER_FUNC_SRGB,
          },
      };
-     return csi2rx_set_fmt(subdev, state, &format);
+     unsigned int i;
+ 
+     v4l2_subdev_state_get_format(state, CSI2RX_PAD_SINK);
+     csi2rx_set_fmt(subdev, state, &fmt);
+ 
+     for (i = CSI2RX_PAD_SOURCE_STREAM0; i < CSI2RX_PAD_MAX; i++) {
+         fmt.pad = i;
+         csi2rx_set_fmt(subdev, state, &fmt);
+     }
+     return 0;
  }
  
  static const struct v4l2_subdev_pad_ops csi2rx_pad_ops = {
@@ -415,7 +437,7 @@
  }
  
  static const struct v4l2_async_notifier_operations csi2rx_notifier_ops = {
-     .bound      = csi2rx_async_bound,
+     .bound = csi2rx_async_bound,
  };
  
  static int csi2rx_get_resources(struct csi2rx_priv *csi2rx,
@@ -501,23 +523,28 @@
          return ret;
      }
  
-     if (v4l2_ep.bus_type != V4L2_MBUS_CSI2_DPHY)
+     if (v4l2_ep.bus_type != V4L2_MBUS_CSI2_DPHY) {
+         of_node_put(ep);
          return -EINVAL;
+     }
  
      memcpy(csi2rx->lanes, v4l2_ep.bus.mipi_csi2.data_lanes, sizeof(csi2rx->lanes));
-     csi2rx->num_lanes = v4l2_ep.bus.mipi_csi2.num_data_lanes; // Set to 2 in DT for IMX219
-     if (csi2rx->num_lanes > csi2rx->max_lanes)
+     csi2rx->num_lanes = v4l2_ep.bus.mipi_csi2.num_data_lanes;
+     if (csi2rx->num_lanes != 2) { // Enforce 2 lanes for IMX219
+         dev_err(csi2rx->dev, "Only 2 data lanes supported, got %d\n", csi2rx->num_lanes);
+         of_node_put(ep);
          return -EINVAL;
+     }
  
-     v4l2_async_subdev_nf_init(&csi2rx->notifier, &csi2rx->subdev);
-     asd = v4l2_async_nf_add_fwnode_remote(&csi2rx->notifier, fwh,
-                                           struct v4l2_async_connection);
+     v4l2_async_nf_init(&csi2rx->notifier);
+     asd = v4l2_async_nf_add_fwnode(&csi2rx->notifier, fwh,
+                                    struct v4l2_async_connection);
      of_node_put(ep);
      if (IS_ERR(asd))
          return PTR_ERR(asd);
  
      csi2rx->notifier.ops = &csi2rx_notifier_ops;
-     ret = v4l2_async_nf_register(&csi2rx->notifier);
+     ret = v4l2_async_nf_register(&csi2rx->subdev, &csi2rx->notifier);
      if (ret)
          v4l2_async_nf_cleanup(&csi2rx->notifier);
      return ret;
@@ -540,10 +567,6 @@
      if (ret)
          goto err_free_priv;
  
-     ret = csi2rx_parse_dt(csi2rx);
-     if (ret)
-         goto err_free_priv;
- 
      csi2rx->subdev.owner = THIS_MODULE;
      csi2rx->subdev.dev = &pdev->dev;
      v4l2_subdev_init(&csi2rx->subdev, &csi2rx_subdev_ops);
@@ -562,31 +585,36 @@
      if (ret)
          goto err_cleanup;
  
+     csi2rx->subdev.state_lock = &csi2rx->lock;
      ret = v4l2_subdev_init_finalize(&csi2rx->subdev);
-     if (ret)
+     if (ret) {
+         dev_err(&pdev->dev, "Failed to finalize subdev: %d\n", ret);
          goto err_cleanup;
+     }
  
      ret = v4l2_async_register_subdev(&csi2rx->subdev);
      if (ret < 0)
-         goto err_free_state;
+         goto err_cleanup;
+ 
+     ret = csi2rx_parse_dt(csi2rx);
+     if (ret)
+         goto err_unregister;
  
      dev_info(&pdev->dev, "Probed CSI2RX with %u/%u lanes, %u streams, %s D-PHY\n",
               csi2rx->num_lanes, csi2rx->max_lanes, csi2rx->max_streams,
               csi2rx->dphy ? "external" : csi2rx->has_internal_dphy ? "internal" : "no");
      return 0;
  
- err_free_state:
-     v4l2_subdev_cleanup(&csi2rx->subdev);
+ err_unregister:
+     v4l2_async_unregister_subdev(&csi2rx->subdev);
  err_cleanup:
-     v4l2_async_nf_unregister(&csi2rx->notifier);
-     v4l2_async_nf_cleanup(&csi2rx->notifier);
      media_entity_cleanup(&csi2rx->subdev.entity);
  err_free_priv:
      kfree(csi2rx);
      return ret;
  }
  
- static void csi2rx_remove(struct platform_device *pdev)
+ static int csi2rx_remove(struct platform_device *pdev)
  {
      struct csi2rx_priv *csi2rx = platform_get_drvdata(pdev);
      v4l2_async_nf_unregister(&csi2rx->notifier);
@@ -595,25 +623,26 @@
      v4l2_subdev_cleanup(&csi2rx->subdev);
      media_entity_cleanup(&csi2rx->subdev.entity);
      kfree(csi2rx);
+     return 0;
  }
  
  static const struct of_device_id csi2rx_of_table[] = {
-     { .compatible = "starfive,jh7110-csi2rx" },
-     { .compatible = "cdns,csi2rx" },
-     { },
- };
+	{ .compatible = "starfive,jh7110-csi2rx" },
+	{ .compatible = "cdns,csi2rx" },
+	{ },
+};
  MODULE_DEVICE_TABLE(of, csi2rx_of_table);
  
  static struct platform_driver csi2rx_driver = {
      .probe  = csi2rx_probe,
      .remove = csi2rx_remove,
      .driver = {
-         .name           = "cdns-csi2rx",
+         .name           = "cdns-csi2rx-custom",
          .of_match_table = csi2rx_of_table,
      },
  };
  module_platform_driver(csi2rx_driver);
  
  MODULE_AUTHOR("Maxime Ripard <maxime.ripard@bootlin.com>");
- MODULE_DESCRIPTION("Cadence CSI2-RX controller");
+ MODULE_DESCRIPTION("Custom Cadence CSI2-RX controller for IMX219");
  MODULE_LICENSE("GPL");
