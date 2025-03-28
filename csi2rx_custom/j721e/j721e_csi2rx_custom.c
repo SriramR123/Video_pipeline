@@ -36,29 +36,31 @@
 #define DRAIN_TIMEOUT_MS            50
 #define DRAIN_BUFFER_SIZE           SZ_32K
 
+/*** Structures ***/
+
 struct ti_csi2rx_fmt {
-    u32 fourcc;
-    u32 code;    // Media bus code from IMX219
-    u32 csi_dt;  // CSI-2 data type
-    u8  bpp;
-    u8  size;
+    u32 fourcc;        // V4L2 pixel format
+    u32 code;          // Media bus code from IMX219
+    u32 csi_dt;        // CSI-2 data type
+    u8  bpp;           // Bits per pixel
+    u8  size;          // SHIM_DMACNTX_SIZE value
 };
 
-/* Format array compatible with IMX219 supported_codes */
+/* Supported formats, including Bayer formats for IMX219 compatibility */
 static const struct ti_csi2rx_fmt ti_csi2rx_formats[] = {
     { .fourcc = V4L2_PIX_FMT_YUYV, .code = MEDIA_BUS_FMT_YUYV8_1X16, .csi_dt = MIPI_CSI2_DT_YUV422_8B, .bpp = 16, .size = SHIM_DMACNTX_SIZE_8 },
     { .fourcc = V4L2_PIX_FMT_UYVY, .code = MEDIA_BUS_FMT_UYVY8_1X16, .csi_dt = MIPI_CSI2_DT_YUV422_8B, .bpp = 16, .size = SHIM_DMACNTX_SIZE_8 },
     { .fourcc = V4L2_PIX_FMT_YVYU, .code = MEDIA_BUS_FMT_YVYU8_1X16, .csi_dt = MIPI_CSI2_DT_YUV422_8B, .bpp = 16, .size = SHIM_DMACNTX_SIZE_8 },
     { .fourcc = V4L2_PIX_FMT_VYUY, .code = MEDIA_BUS_FMT_VYUY8_1X16, .csi_dt = MIPI_CSI2_DT_YUV422_8B, .bpp = 16, .size = SHIM_DMACNTX_SIZE_8 },
-    { .fourcc = V4L2_PIX_FMT_SBGGR8, .code = MEDIA_BUS_FMT_SBGGR8_1X8, .csi_dt = MIPI_CSI2_DT_RAW8, .bpp = 8, .size = SHIM_DMACNTX_SIZE_8 }, // Matches IMX219
-    { .fourcc = V4L2_PIX_FMT_SGBRG8, .code = MEDIA_BUS_FMT_SGBRG8_1X8, .csi_dt = MIPI_CSI2_DT_RAW8, .bpp = 8, .size = SHIM_DMACNTX_SIZE_8 }, // Matches IMX219
-    { .fourcc = V4L2_PIX_FMT_SGRBG8, .code = MEDIA_BUS_FMT_SGRBG8_1X8, .csi_dt = MIPI_CSI2_DT_RAW8, .bpp = 8, .size = SHIM_DMACNTX_SIZE_8 }, // Matches IMX219
-    { .fourcc = V4L2_PIX_FMT_SRGGB8, .code = MEDIA_BUS_FMT_SRGGB8_1X8, .csi_dt = MIPI_CSI2_DT_RAW8, .bpp = 8, .size = SHIM_DMACNTX_SIZE_8 }, // Matches IMX219
+    { .fourcc = V4L2_PIX_FMT_SBGGR8, .code = MEDIA_BUS_FMT_SBGGR8_1X8, .csi_dt = MIPI_CSI2_DT_RAW8, .bpp = 8, .size = SHIM_DMACNTX_SIZE_8 },
+    { .fourcc = V4L2_PIX_FMT_SGBRG8, .code = MEDIA_BUS_FMT_SGBRG8_1X8, .csi_dt = MIPI_CSI2_DT_RAW8, .bpp = 8, .size = SHIM_DMACNTX_SIZE_8 },
+    { .fourcc = V4L2_PIX_FMT_SGRBG8, .code = MEDIA_BUS_FMT_SGRBG8_1X8, .csi_dt = MIPI_CSI2_DT_RAW8, .bpp = 8, .size = SHIM_DMACNTX_SIZE_8 },
+    { .fourcc = V4L2_PIX_FMT_SRGGB8, .code = MEDIA_BUS_FMT_SRGGB8_1X8, .csi_dt = MIPI_CSI2_DT_RAW8, .bpp = 8, .size = SHIM_DMACNTX_SIZE_8 },
     { .fourcc = V4L2_PIX_FMT_GREY,  .code = MEDIA_BUS_FMT_Y8_1X8,     .csi_dt = MIPI_CSI2_DT_RAW8, .bpp = 8, .size = SHIM_DMACNTX_SIZE_8 },
-    { .fourcc = V4L2_PIX_FMT_SBGGR10, .code = MEDIA_BUS_FMT_SBGGR10_1X10, .csi_dt = MIPI_CSI2_DT_RAW10, .bpp = 16, .size = SHIM_DMACNTX_SIZE_16 }, // Matches IMX219
-    { .fourcc = V4L2_PIX_FMT_SGBRG10, .code = MEDIA_BUS_FMT_SGBRG10_1X10, .csi_dt = MIPI_CSI2_DT_RAW10, .bpp = 16, .size = SHIM_DMACNTX_SIZE_16 }, // Matches IMX219
-    { .fourcc = V4L2_PIX_FMT_SGRBG10, .code = MEDIA_BUS_FMT_SGRBG10_1X10, .csi_dt = MIPI_CSI2_DT_RAW10, .bpp = 16, .size = SHIM_DMACNTX_SIZE_16 }, // Matches IMX219
-    { .fourcc = V4L2_PIX_FMT_SRGGB10, .code = MEDIA_BUS_FMT_SRGGB10_1X10, .csi_dt = MIPI_CSI2_DT_RAW10, .bpp = 16, .size = SHIM_DMACNTX_SIZE_16 }, // Matches IMX219
+    { .fourcc = V4L2_PIX_FMT_SBGGR10, .code = MEDIA_BUS_FMT_SBGGR10_1X10, .csi_dt = MIPI_CSI2_DT_RAW10, .bpp = 16, .size = SHIM_DMACNTX_SIZE_16 },
+    { .fourcc = V4L2_PIX_FMT_SGBRG10, .code = MEDIA_BUS_FMT_SGBRG10_1X10, .csi_dt = MIPI_CSI2_DT_RAW10, .bpp = 16, .size = SHIM_DMACNTX_SIZE_16 },
+    { .fourcc = V4L2_PIX_FMT_SGRBG10, .code = MEDIA_BUS_FMT_SGRBG10_1X10, .csi_dt = MIPI_CSI2_DT_RAW10, .bpp = 16, .size = SHIM_DMACNTX_SIZE_16 },
+    { .fourcc = V4L2_PIX_FMT_SRGGB10, .code = MEDIA_BUS_FMT_SRGGB10_1X10, .csi_dt = MIPI_CSI2_DT_RAW10, .bpp = 16, .size = SHIM_DMACNTX_SIZE_16 },
     { .fourcc = V4L2_PIX_FMT_RGB565X, .code = MEDIA_BUS_FMT_RGB565_1X16, .csi_dt = MIPI_CSI2_DT_RGB565, .bpp = 16, .size = SHIM_DMACNTX_SIZE_16 },
     { .fourcc = V4L2_PIX_FMT_XBGR32,  .code = MEDIA_BUS_FMT_RGB888_1X24, .csi_dt = MIPI_CSI2_DT_RGB888, .bpp = 32, .size = SHIM_DMACNTX_SIZE_32 },
     { .fourcc = V4L2_PIX_FMT_RGBX32,  .code = MEDIA_BUS_FMT_BGR888_1X24, .csi_dt = MIPI_CSI2_DT_RGB888, .bpp = 32, .size = SHIM_DMACNTX_SIZE_32 },
@@ -106,6 +108,8 @@ struct ti_csi2rx_dev {
     u32                     sequence;
 };
 
+/*** Helper Functions ***/
+
 static const struct ti_csi2rx_fmt *find_format_by_fourcc(u32 pixelformat)
 {
     unsigned int i;
@@ -142,6 +146,8 @@ static void ti_csi2rx_fill_fmt(const struct ti_csi2rx_fmt *csi_fmt,
     pix->sizeimage = pix->bytesperline * pix->height;
 }
 
+/*** V4L2 IOCTL Operations ***/
+
 static int ti_csi2rx_querycap(struct file *file, void *priv,
                               struct v4l2_capability *cap)
 {
@@ -173,7 +179,7 @@ static int ti_csi2rx_enum_fmt_vid_cap(struct file *file, void *priv,
     return 0;
 }
 
-static int ti_csi2rx_g_fmt_vid_cap(struct file *file, void *prov,
+static int ti_csi2rx_g_fmt_vid_cap(struct file *file, void *priv,
                                    struct v4l2_format *f)
 {
     struct ti_csi2rx_dev *csi = video_drvdata(file);
@@ -233,6 +239,16 @@ static int ti_csi2rx_enum_framesizes(struct file *file, void *fh,
     return 0;
 }
 
+static const struct v4l2_file_operations csi_fops = {
+    .owner = THIS_MODULE,
+    .open = v4l2_fh_open,
+    .release = vb2_fop_release,
+    .read = vb2_fop_read,
+    .poll = vb2_fop_poll,
+    .unlocked_ioctl = video_ioctl2,
+    .mmap = vb2_fop_mmap,
+};
+
 static const struct v4l2_ioctl_ops csi_ioctl_ops = {
     .vidioc_querycap      = ti_csi2rx_querycap,
     .vidioc_enum_fmt_vid_cap = ti_csi2rx_enum_fmt_vid_cap,
@@ -251,22 +267,17 @@ static const struct v4l2_ioctl_ops csi_ioctl_ops = {
     .vidioc_streamoff     = vb2_ioctl_streamoff,
 };
 
-static const struct v4l2_file_operations csi_fops = {
-    .owner = THIS_MODULE,
-    .open = v4l2_fh_open,
-    .release = vb2_fop_release,
-    .read = vb2_fop_read,
-    .poll = vb2_fop_poll,
-    .unlocked_ioctl = video_ioctl2,
-    .mmap = vb2_fop_mmap,
-};
+/*** Asynchronous Notifier Functions ***/
+
+// Forward declaration
+static int ti_csi2rx_start_dma(struct ti_csi2rx_dev *csi, struct ti_csi2rx_buffer *buf);
 
 static int csi_async_notifier_bound(struct v4l2_async_notifier *notifier,
                                     struct v4l2_subdev *subdev,
-                                    struct v4l2_async_connection *asc)
+                                    struct v4l2_async_subdev *asd)
 {
     struct ti_csi2rx_dev *csi = dev_get_drvdata(notifier->v4l2_dev->dev);
-    csi->source = subdev; // Binds to IMX219
+    csi->source = subdev;
     return 0;
 }
 
@@ -301,7 +312,7 @@ static const struct v4l2_async_notifier_operations csi_async_notifier_ops = {
 static int ti_csi2rx_notifier_register(struct ti_csi2rx_dev *csi)
 {
     struct fwnode_handle *fwnode;
-    struct v4l2_async_connection *asc;
+    struct v4l2_async_subdev *asd;
     struct device_node *node;
     int ret;
 
@@ -315,19 +326,20 @@ static int ti_csi2rx_notifier_register(struct ti_csi2rx_dev *csi)
         return -EINVAL;
     }
 
-    v4l2_async_nf_init(&csi->notifier, &csi->v4l2_dev);
+    v4l2_async_nf_init(&csi->notifier);
     csi->notifier.ops = &csi_async_notifier_ops;
-    asc = v4l2_async_nf_add_fwnode(&csi->notifier, fwnode,
-                                   struct v4l2_async_connection);
+    asd = v4l2_async_nf_add_fwnode(&csi->notifier, fwnode, struct v4l2_async_subdev);
     of_node_put(node);
-    if (IS_ERR(asc))
-        return PTR_ERR(asc);
+    if (IS_ERR(asd))
+        return PTR_ERR(asd);
 
-    ret = v4l2_async_nf_register(&csi->notifier);
+    ret = v4l2_async_nf_register(&csi->v4l2_dev, &csi->notifier);
     if (ret)
         v4l2_async_nf_cleanup(&csi->notifier);
     return ret;
 }
+
+/*** DMA Operations ***/
 
 static void ti_csi2rx_setup_shim(struct ti_csi2rx_dev *csi)
 {
@@ -471,6 +483,8 @@ static void ti_csi2rx_stop_dma(struct ti_csi2rx_dev *csi)
         dev_err(csi->dev, "Failed to stop DMA: %d\n", ret);
 }
 
+/*** Buffer Management ***/
+
 static void ti_csi2rx_cleanup_buffers(struct ti_csi2rx_dev *csi,
                                       enum vb2_buffer_state state)
 {
@@ -488,6 +502,8 @@ static void ti_csi2rx_cleanup_buffers(struct ti_csi2rx_dev *csi,
     }
     spin_unlock_irqrestore(&csi->dma.lock, flags);
 }
+
+/*** VB2 Operations ***/
 
 static int ti_csi2rx_queue_setup(struct vb2_queue *q, unsigned int *nbuffers,
                                  unsigned int *nplanes, unsigned int sizes[],
@@ -642,7 +658,6 @@ static int ti_csi2rx_init_vb2q(struct ti_csi2rx_dev *csi)
     q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
     q->dev = dmaengine_get_dma_device(csi->dma.chan);
     q->lock = &csi->mutex;
-    q->min_queued_buffers = 1;
 
     ret = vb2_queue_init(q);
     if (ret)
@@ -651,6 +666,8 @@ static int ti_csi2rx_init_vb2q(struct ti_csi2rx_dev *csi)
     csi->vdev.queue = q;
     return 0;
 }
+
+/*** Media Entity Operations ***/
 
 static int ti_csi2rx_link_validate(struct media_link *link)
 {
@@ -678,16 +695,14 @@ static int ti_csi2rx_link_validate(struct media_link *link)
     if (!ti_fmt || ti_fmt->fourcc != csi_fmt->pixelformat)
         return -EPIPE;
 
-    // Optional strict check for IMX219 format, can be removed if flexible formats needed
-    if (source_fmt.format.code != MEDIA_BUS_FMT_SRGGB10_1X10)
-        dev_warn(csi->dev, "Expected SRGGB10_1X10, got 0x%x\n", source_fmt.format.code);
-
     return 0;
 }
 
 static const struct media_entity_operations ti_csi2rx_video_entity_ops = {
     .link_validate = ti_csi2rx_link_validate,
 };
+
+/*** Initialization and Cleanup Functions ***/
 
 static int ti_csi2rx_init_dma(struct ti_csi2rx_dev *csi)
 {
@@ -800,6 +815,8 @@ static void ti_csi2rx_cleanup_vb2q(struct ti_csi2rx_dev *csi)
     vb2_queue_release(&csi->vidq);
 }
 
+/*** Platform Driver ***/
+
 static int ti_csi2rx_probe(struct platform_device *pdev)
 {
     struct ti_csi2rx_dev *csi;
@@ -852,7 +869,7 @@ err_mutex:
     return ret;
 }
 
-static void ti_csi2rx_remove(struct platform_device *pdev)
+static int ti_csi2rx_remove(struct platform_device *pdev)
 {
     struct ti_csi2rx_dev *csi = platform_get_drvdata(pdev);
 
@@ -862,6 +879,7 @@ static void ti_csi2rx_remove(struct platform_device *pdev)
     ti_csi2rx_cleanup_v4l2(csi);
     ti_csi2rx_cleanup_dma(csi);
     mutex_destroy(&csi->mutex);
+    return 0;
 }
 
 static const struct of_device_id ti_csi2rx_of_match[] = {
