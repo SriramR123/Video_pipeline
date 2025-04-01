@@ -756,7 +756,6 @@ deps_/home/mcw/Video_pipeline/csi2rx_custom/cdns/cdns_csi2rx_custom.o := \
     $(wildcard include/config/HAVE_ARCH_HUGE_VMALLOC) \
   arch/arm64/include/asm/vmalloc.h \
     $(wildcard include/config/PTDUMP_DEBUGFS) \
-  include/linux/iopoll.h \
   include/linux/module.h \
     $(wildcard include/config/MODULES_TREE_LOOKUP) \
     $(wildcard include/config/STACKTRACE_BUILD_ID) \
@@ -1262,75 +1261,30 @@ deps_/home/mcw/Video_pipeline/csi2rx_custom/cdns/cdns_csi2rx_custom.o := \
   include/linux/platform_device.h \
     $(wildcard include/config/HIBERNATE_CALLBACKS) \
     $(wildcard include/config/SUPERH) \
-  include/linux/reset.h \
-    $(wildcard include/config/RESET_CONTROLLER) \
-  include/media/v4l2-ctrls.h \
+  include/media/v4l2-subdev.h \
+    $(wildcard include/config/VIDEO_ADV_DEBUG) \
+    $(wildcard include/config/MEDIA_CONTROLLER) \
+    $(wildcard include/config/VIDEO_V4L2_SUBDEV_API) \
+  include/uapi/linux/v4l2-subdev.h \
+  include/uapi/linux/v4l2-common.h \
+  include/uapi/linux/v4l2-mediabus.h \
+  include/uapi/linux/media-bus-format.h \
   include/linux/videodev2.h \
   include/uapi/linux/videodev2.h \
-    $(wildcard include/config/VIDEO_ADV_DEBUG) \
-  include/uapi/linux/v4l2-common.h \
   include/uapi/linux/v4l2-controls.h \
-  include/media/media-request.h \
-    $(wildcard include/config/MEDIA_CONTROLLER) \
-  include/media/media-device.h \
-  include/linux/pci.h \
-    $(wildcard include/config/PCI_IOV) \
-    $(wildcard include/config/PCIEAER) \
-    $(wildcard include/config/PCIEPORTBUS) \
-    $(wildcard include/config/PCIEASPM) \
-    $(wildcard include/config/HOTPLUG_PCI_PCIE) \
-    $(wildcard include/config/PCIE_PTM) \
-    $(wildcard include/config/PCI_MSI) \
-    $(wildcard include/config/PCIE_DPC) \
-    $(wildcard include/config/PCI_ATS) \
-    $(wildcard include/config/PCI_PRI) \
-    $(wildcard include/config/PCI_PASID) \
-    $(wildcard include/config/PCI_DOMAINS_GENERIC) \
-    $(wildcard include/config/PCI_DOMAINS) \
-    $(wildcard include/config/PCI_QUIRKS) \
-    $(wildcard include/config/PCI_MMCONFIG) \
-    $(wildcard include/config/ACPI_MCFG) \
-    $(wildcard include/config/HOTPLUG_PCI) \
-    $(wildcard include/config/EEH) \
-  include/linux/resource_ext.h \
-  include/uapi/linux/pci.h \
-  include/uapi/linux/pci_regs.h \
-  include/linux/pci_ids.h \
-  include/linux/dmapool.h \
-    $(wildcard include/config/HAS_DMA) \
-  include/linux/scatterlist.h \
-    $(wildcard include/config/NEED_SG_DMA_LENGTH) \
-    $(wildcard include/config/DEBUG_SG) \
-    $(wildcard include/config/SGL_ALLOC) \
-    $(wildcard include/config/ARCH_NO_SG_CHAIN) \
-    $(wildcard include/config/SG_POOL) \
-  arch/arm64/include/asm/pci.h \
-  include/linux/dma-mapping.h \
-    $(wildcard include/config/DMA_API_DEBUG) \
-    $(wildcard include/config/NEED_DMA_MAP_STATE) \
-  include/linux/mem_encrypt.h \
-    $(wildcard include/config/ARCH_HAS_MEM_ENCRYPT) \
-  include/asm-generic/pci.h \
-  include/media/media-devnode.h \
+  include/media/media-entity.h \
+  include/uapi/linux/media.h \
+  include/media/v4l2-async.h \
+  include/media/v4l2-common.h \
+    $(wildcard include/config/VIDEO_V4L2_I2C) \
+    $(wildcard include/config/SPI) \
+  include/media/v4l2-dev.h \
   include/linux/poll.h \
   include/uapi/linux/poll.h \
   arch/arm64/include/generated/uapi/asm/poll.h \
   include/uapi/asm-generic/poll.h \
   include/uapi/linux/eventpoll.h \
   include/linux/cdev.h \
-  include/media/media-entity.h \
-  include/uapi/linux/media.h \
-  include/media/v4l2-device.h \
-    $(wildcard include/config/VIDEO_V4L2_SUBDEV_API) \
-  include/media/v4l2-subdev.h \
-  include/uapi/linux/v4l2-subdev.h \
-  include/uapi/linux/v4l2-mediabus.h \
-  include/uapi/linux/media-bus-format.h \
-  include/media/v4l2-async.h \
-  include/media/v4l2-common.h \
-    $(wildcard include/config/VIDEO_V4L2_I2C) \
-    $(wildcard include/config/SPI) \
-  include/media/v4l2-dev.h \
   include/linux/i2c.h \
     $(wildcard include/config/I2C) \
     $(wildcard include/config/I2C_SLAVE) \
@@ -1359,6 +1313,7 @@ deps_/home/mcw/Video_pipeline/csi2rx_custom/cdns/cdns_csi2rx_custom.o := \
     $(wildcard include/config/ACPI_PCC) \
   include/linux/irqdomain.h \
     $(wildcard include/config/IRQ_DOMAIN_NOMAP) \
+  include/linux/resource_ext.h \
   include/acpi/acpi.h \
   include/acpi/platform/acenv.h \
   include/acpi/platform/acgcc.h \
@@ -1388,6 +1343,12 @@ deps_/home/mcw/Video_pipeline/csi2rx_custom/cdns/cdns_csi2rx_custom.o := \
   include/uapi/linux/i2c.h \
   include/linux/spi/spi.h \
     $(wildcard include/config/SPI_SLAVE) \
+  include/linux/scatterlist.h \
+    $(wildcard include/config/NEED_SG_DMA_LENGTH) \
+    $(wildcard include/config/DEBUG_SG) \
+    $(wildcard include/config/SGL_ALLOC) \
+    $(wildcard include/config/ARCH_NO_SG_CHAIN) \
+    $(wildcard include/config/SG_POOL) \
   include/linux/gpio/consumer.h \
     $(wildcard include/config/OF_GPIO) \
     $(wildcard include/config/GPIO_SYSFS) \
@@ -1395,6 +1356,42 @@ deps_/home/mcw/Video_pipeline/csi2rx_custom/cdns/cdns_csi2rx_custom.o := \
   include/media/v4l2-fh.h \
   include/media/v4l2-mediabus.h \
   include/media/v4l2-fwnode.h \
+  include/media/v4l2-ctrls.h \
+  include/media/media-request.h \
+  include/media/media-device.h \
+  include/linux/pci.h \
+    $(wildcard include/config/PCI_IOV) \
+    $(wildcard include/config/PCIEAER) \
+    $(wildcard include/config/PCIEPORTBUS) \
+    $(wildcard include/config/PCIEASPM) \
+    $(wildcard include/config/HOTPLUG_PCI_PCIE) \
+    $(wildcard include/config/PCIE_PTM) \
+    $(wildcard include/config/PCI_MSI) \
+    $(wildcard include/config/PCIE_DPC) \
+    $(wildcard include/config/PCI_ATS) \
+    $(wildcard include/config/PCI_PRI) \
+    $(wildcard include/config/PCI_PASID) \
+    $(wildcard include/config/PCI_DOMAINS_GENERIC) \
+    $(wildcard include/config/PCI_DOMAINS) \
+    $(wildcard include/config/PCI_QUIRKS) \
+    $(wildcard include/config/PCI_MMCONFIG) \
+    $(wildcard include/config/ACPI_MCFG) \
+    $(wildcard include/config/HOTPLUG_PCI) \
+    $(wildcard include/config/EEH) \
+  include/uapi/linux/pci.h \
+  include/uapi/linux/pci_regs.h \
+  include/linux/pci_ids.h \
+  include/linux/dmapool.h \
+    $(wildcard include/config/HAS_DMA) \
+  arch/arm64/include/asm/pci.h \
+  include/linux/dma-mapping.h \
+    $(wildcard include/config/DMA_API_DEBUG) \
+    $(wildcard include/config/NEED_DMA_MAP_STATE) \
+  include/linux/mem_encrypt.h \
+    $(wildcard include/config/ARCH_HAS_MEM_ENCRYPT) \
+  include/asm-generic/pci.h \
+  include/media/media-devnode.h \
+  include/linux/iopoll.h \
 
 /home/mcw/Video_pipeline/csi2rx_custom/cdns/cdns_csi2rx_custom.o: $(deps_/home/mcw/Video_pipeline/csi2rx_custom/cdns/cdns_csi2rx_custom.o)
 
