@@ -1369,8 +1369,9 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
   include/linux/cdev.h \
   include/media/media-entity.h \
   include/uapi/linux/media.h \
-  include/media/v4l2-subdev.h \
+  include/media/v4l2-device.h \
     $(wildcard include/config/VIDEO_V4L2_SUBDEV_API) \
+  include/media/v4l2-subdev.h \
   include/uapi/linux/v4l2-subdev.h \
   include/uapi/linux/v4l2-mediabus.h \
   include/uapi/linux/media-bus-format.h \
@@ -1384,6 +1385,7 @@ deps_/home/mcw/Video_pipeline/imx219_custom/imx219_custom.o := \
   include/uapi/linux/spi/spi.h \
   include/media/v4l2-fh.h \
   include/media/v4l2-mediabus.h \
+  include/media/v4l2-event.h \
   include/media/v4l2-fwnode.h \
   arch/arm64/include/generated/asm/unaligned.h \
   include/asm-generic/unaligned.h \
