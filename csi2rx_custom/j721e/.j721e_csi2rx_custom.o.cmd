@@ -1096,6 +1096,7 @@ deps_/home/mcw/Video_pipeline/csi2rx_custom/j721e/j721e_csi2rx_custom.o := \
     $(wildcard include/config/OF_NUMA) \
     $(wildcard include/config/OF_OVERLAY) \
   include/linux/property.h \
+  include/linux/pm_runtime.h \
   include/media/mipi-csi2.h \
   include/media/v4l2-device.h \
     $(wildcard include/config/VIDEO_V4L2_SUBDEV_API) \

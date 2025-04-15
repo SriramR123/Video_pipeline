@@ -28,5 +28,5 @@ MODULE_INFO(retpoline, "Y");
 
 MODULE_INFO(depends, "");
 
-MODULE_ALIAS("of:N*T*Cti,j721e-csi2rx-shim");
-MODULE_ALIAS("of:N*T*Cti,j721e-csi2rx-shimC*");
+MODULE_ALIAS("of:N*T*Cti,j721e-csi2rx");
+MODULE_ALIAS("of:N*T*Cti,j721e-csi2rxC*");
