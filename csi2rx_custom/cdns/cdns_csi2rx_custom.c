@@ -1,3 +1,17 @@
+/**
+ * @file cdns_csi2rx_custom.c
+ * @brief Custom Cadence CSI-2 RX Controller Driver
+ * @author RAM
+ * @date April 20, 2025
+ * @license GPL
+ *
+ * This driver manages the Cadence CSI-2 Receiver (RX) controller, interfacing
+ * with camera sensors (e.g., IMX219) to receive MIPI CSI-2 data. It operates as
+ * a V4L2 subdevice, supporting up to 4 data lanes and 4 streams, with runtime
+ * power management, external D-PHY configuration, and asynchronous subdevice
+ * registration.
+ */
+
  #include <linux/clk.h>
  #include <linux/delay.h>
  #include <linux/io.h>
@@ -14,82 +28,115 @@
  #include <media/v4l2-fwnode.h>
  #include <media/v4l2-subdev.h>
  
- #define CUSTOM_CSI2RX_DEVICE_CFG_REG			0x000
+ /** @brief Device configuration register */
+ #define CUSTOM_CSI2RX_DEVICE_CFG_REG            0x000
  
- #define CUSTOM_CSI2RX_SOFT_RESET_REG			0x004
- #define CUSTOM_CSI2RX_SOFT_RESET_PROTOCOL		BIT(1)
- #define CUSTOM_CSI2RX_SOFT_RESET_FRONT			BIT(0)
+ /** @brief Soft reset register */
+ #define CUSTOM_CSI2RX_SOFT_RESET_REG            0x004
+ /** @brief Protocol logic reset bit */
+ #define CUSTOM_CSI2RX_SOFT_RESET_PROTOCOL       BIT(1)
+ /** @brief Front-end logic reset bit */
+ #define CUSTOM_CSI2RX_SOFT_RESET_FRONT          BIT(0)
  
- #define CUSTOM_CSI2RX_STATIC_CFG_REG			0x008
- #define CUSTOM_CSI2RX_STATIC_CFG_DLANE_MAP(llane, plane)	((plane) << (16 + (llane) * 4))
- #define CUSTOM_CSI2RX_STATIC_CFG_LANES_MASK		GENMASK(11, 8)
+ /** @brief Static configuration register */
+ #define CUSTOM_CSI2RX_STATIC_CFG_REG            0x008
+ /** @brief Macro to map logical lane to physical lane */
+ #define CUSTOM_CSI2RX_STATIC_CFG_DLANE_MAP(llane, plane) ((plane) << (16 + (llane) * 4))
+ /** @brief Mask for number of lanes in static config */
+ #define CUSTOM_CSI2RX_STATIC_CFG_LANES_MASK     GENMASK(11, 8)
  
- #define CUSTOM_CSI2RX_DPHY_LANE_CTRL_REG		0x40
- #define CUSTOM_CSI2RX_DPHY_CL_RST			BIT(16)
- #define CUSTOM_CSI2RX_DPHY_DL_RST(i)			BIT((i) + 12)
- #define CUSTOM_CSI2RX_DPHY_CL_EN			BIT(4)
- #define CUSTOM_CSI2RX_DPHY_DL_EN(i)			BIT(i)
+ /** @brief D-PHY lane control register */
+ #define CUSTOM_CSI2RX_DPHY_LANE_CTRL_REG        0x40
+ /** @brief Clock lane reset bit */
+ #define CUSTOM_CSI2RX_DPHY_CL_RST               BIT(16)
+ /** @brief Data lane reset bit for lane i */
+ #define CUSTOM_CSI2RX_DPHY_DL_RST(i)            BIT((i) + 12)
+ /** @brief Clock lane enable bit */
+ #define CUSTOM_CSI2RX_DPHY_CL_EN                BIT(4)
+ /** @brief Data lane enable bit for lane i */
+ #define CUSTOM_CSI2RX_DPHY_DL_EN(i)             BIT(i)
  
- #define CUSTOM_CSI2RX_STREAM_BASE(n)			(((n) + 1) * 0x100)
+ /** @brief Base address for stream n registers */
+ #define CUSTOM_CSI2RX_STREAM_BASE(n)            (((n) + 1) * 0x100)
  
- #define CUSTOM_CSI2RX_STREAM_CTRL_REG(n)		(CUSTOM_CSI2RX_STREAM_BASE(n) + 0x000)
- #define CUSTOM_CSI2RX_STREAM_CTRL_SOFT_RST		BIT(4)
- #define CUSTOM_CSI2RX_STREAM_CTRL_STOP			BIT(1)
- #define CUSTOM_CSI2RX_STREAM_CTRL_START			BIT(0)
+ /** @brief Stream control register for stream n */
+ #define CUSTOM_CSI2RX_STREAM_CTRL_REG(n)        (CUSTOM_CSI2RX_STREAM_BASE(n) + 0x000)
+ /** @brief Stream soft reset bit */
+ #define CUSTOM_CSI2RX_STREAM_CTRL_SOFT_RST      BIT(4)
+ /** @brief Stream stop bit */
+ #define CUSTOM_CSI2RX_STREAM_CTRL_STOP          BIT(1)
+ /** @brief Stream start bit */
+ #define CUSTOM_CSI2RX_STREAM_CTRL_START         BIT(0)
  
- #define CUSTOM_CSI2RX_STREAM_STATUS_REG(n)		(CUSTOM_CSI2RX_STREAM_BASE(n) + 0x004)
- #define CUSTOM_CSI2RX_STREAM_STATUS_RDY			BIT(31)
+ /** @brief Stream status register for stream n */
+ #define CUSTOM_CSI2RX_STREAM_STATUS_REG(n)      (CUSTOM_CSI2RX_STREAM_BASE(n) + 0x004)
+ /** @brief Stream ready status bit */
+ #define CUSTOM_CSI2RX_STREAM_STATUS_RDY         BIT(31)
  
- #define CUSTOM_CSI2RX_STREAM_DATA_CFG_REG(n)		(CUSTOM_CSI2RX_STREAM_BASE(n) + 0x008)
- #define CUSTOM_CSI2RX_STREAM_DATA_CFG_VC_SELECT(n)	BIT((n) + 16)
- #define CUSTOM_CSI2RX_STREAM_DATA_CFG_VC_ALL		0
+ /** @brief Stream data configuration register for stream n */
+ #define CUSTOM_CSI2RX_STREAM_DATA_CFG_REG(n)    (CUSTOM_CSI2RX_STREAM_BASE(n) + 0x008)
+ /** @brief Virtual channel select bit for VC n */
+ #define CUSTOM_CSI2RX_STREAM_DATA_CFG_VC_SELECT(n) BIT((n) + 16)
+ /** @brief Accept all virtual channels */
+ #define CUSTOM_CSI2RX_STREAM_DATA_CFG_VC_ALL    0
  
- #define CUSTOM_CSI2RX_STREAM_CFG_REG(n)			(CUSTOM_CSI2RX_STREAM_BASE(n) + 0x00c)
- #define CUSTOM_CSI2RX_STREAM_CFG_FIFO_MODE_LARGE_BUF	(1 << 8)
+ /** @brief Stream configuration register for stream n */
+ #define CUSTOM_CSI2RX_STREAM_CFG_REG(n)         (CUSTOM_CSI2RX_STREAM_BASE(n) + 0x00c)
+ /** @brief Enable large FIFO buffer mode */
+ #define CUSTOM_CSI2RX_STREAM_CFG_FIFO_MODE_LARGE_BUF (1 << 8)
  
- #define CUSTOM_CSI2RX_LANES_MAX				4
- #define CUSTOM_CSI2RX_STREAMS_MAX			4
+ /** @brief Maximum number of data lanes supported */
+ #define CUSTOM_CSI2RX_LANES_MAX                 4
+ /** @brief Maximum number of streams supported */
+ #define CUSTOM_CSI2RX_STREAMS_MAX               4
  
+ /**
+  * @brief Media pad identifiers for the CSI-2 RX subdevice
+  */
  enum custom_csi2rx_pads {
-     CUSTOM_CSI2RX_PAD_SINK,
-     CUSTOM_CSI2RX_PAD_SOURCE_STREAM0,
-     CUSTOM_CSI2RX_PAD_SOURCE_STREAM1,
-     CUSTOM_CSI2RX_PAD_SOURCE_STREAM2,
-     CUSTOM_CSI2RX_PAD_SOURCE_STREAM3,
-     CUSTOM_CSI2RX_PAD_MAX,
+     CUSTOM_CSI2RX_PAD_SINK,           /**< Sink pad (input from sensor) */
+     CUSTOM_CSI2RX_PAD_SOURCE_STREAM0, /**< Source pad for stream 0 */
+     CUSTOM_CSI2RX_PAD_SOURCE_STREAM1, /**< Source pad for stream 1 */
+     CUSTOM_CSI2RX_PAD_SOURCE_STREAM2, /**< Source pad for stream 2 */
+     CUSTOM_CSI2RX_PAD_SOURCE_STREAM3, /**< Source pad for stream 3 */
+     CUSTOM_CSI2RX_PAD_MAX,            /**< Total number of pads */
  };
  
+ /**
+  * @brief Structure representing a supported media bus format
+  */
  struct custom_csi2rx_fmt {
-     u32				code;
-     u8				bpp;
+     u32 code; /**< Media bus format code (e.g., MEDIA_BUS_FMT_YUYV8_1X16) */
+     u8 bpp;   /**< Bits per pixel */
  };
  
+ /**
+  * @brief Private data structure for the CSI-2 RX driver
+  */
  struct custom_csi2rx_priv {
-     struct device			*dev;
-     unsigned int			count;
- 
-     struct mutex			lock;
- 
-     void __iomem			*base;
-     struct clk			*sys_clk;
-     struct clk			*p_clk;
-     struct clk			*pixel_clk[CUSTOM_CSI2RX_STREAMS_MAX];
-     struct phy			*dphy;
- 
-     u8				lanes[CUSTOM_CSI2RX_LANES_MAX];
-     u8				num_lanes;
-     u8				max_lanes;
-     u8				max_streams;
-     bool				has_internal_dphy;
- 
-     struct v4l2_subdev		subdev;
-     struct v4l2_async_notifier	notifier;
-     struct media_pad		pads[CUSTOM_CSI2RX_PAD_MAX];
- 
-     struct v4l2_subdev		*source_subdev;
-     int				source_pad;
+     struct device *dev;                           /**< Platform device */
+     unsigned int count;                           /**< Number of active streams */
+     struct mutex lock;                            /**< Mutex for synchronization */
+     void __iomem *base;                           /**< Base address of registers */
+     struct clk *sys_clk;                          /**< System clock */
+     struct clk *p_clk;                            /**< Protocol clock */
+     struct clk *pixel_clk[CUSTOM_CSI2RX_STREAMS_MAX]; /**< Pixel clocks for streams */
+     struct phy *dphy;                             /**< D-PHY handle */
+     u8 lanes[CUSTOM_CSI2RX_LANES_MAX];            /**< Data lane mapping */
+     u8 num_lanes;                                 /**< Number of active lanes */
+     u8 max_lanes;                                 /**< Maximum supported lanes */
+     u8 max_streams;                               /**< Maximum supported streams */
+     bool has_internal_dphy;                       /**< Internal D-PHY presence */
+     struct v4l2_subdev subdev;                    /**< V4L2 subdevice */
+     struct v4l2_async_notifier notifier;          /**< Async notifier for subdevice */
+     struct media_pad pads[CUSTOM_CSI2RX_PAD_MAX]; /**< Media pads */
+     struct v4l2_subdev *source_subdev;            /**< Source subdevice (e.g., sensor) */
+     int source_pad;                               /**< Source subdevice output pad */
  };
  
+ /**
+  * @brief Array of supported media bus formats
+  */
  static const struct custom_csi2rx_fmt custom_formats[] = {
      { .code = MEDIA_BUS_FMT_YUYV8_1X16, .bpp = 16 },
      { .code = MEDIA_BUS_FMT_UYVY8_1X16, .bpp = 16 },
@@ -117,6 +164,11 @@
      { .code = MEDIA_BUS_FMT_SIGGB10_1X10, .bpp = 10 },
  };
  
+ /**
+  * @brief Retrieve format structure by media bus code
+  * @param code Media bus format code
+  * @return Pointer to format structure or NULL if not found
+  */
  static const struct custom_csi2rx_fmt *custom_csi2rx_get_fmt_by_code(u32 code)
  {
      unsigned int i;
@@ -128,8 +180,14 @@
      return NULL;
  }
  
+ /**
+  * @brief Get frame descriptor from source subdevice
+  * @param csi2rx Driver private data
+  * @param fd Pointer to frame descriptor
+  * @return 0 on success, negative error code on failure
+  */
  static int custom_csi2rx_get_frame_desc_from_source(struct custom_csi2rx_priv *csi2rx,
-                            struct v4l2_mbus_frame_desc *fd)
+                                                    struct v4l2_mbus_frame_desc *fd)
  {
      struct media_pad *remote_pad;
  
@@ -140,14 +198,23 @@
      }
  
      return v4l2_subdev_call(csi2rx->source_subdev, pad, get_frame_desc,
-                 remote_pad->index, fd);
+                             remote_pad->index, fd);
  }
  
+ /**
+  * @brief Convert V4L2 subdevice to driver private data
+  * @param subdev V4L2 subdevice pointer
+  * @return Pointer to driver private data
+  */
  static inline struct custom_csi2rx_priv *v4l2_subdev_to_custom_csi2rx(struct v4l2_subdev *subdev)
  {
      return container_of(subdev, struct custom_csi2rx_priv, subdev);
  }
  
+ /**
+  * @brief Reset the CSI-2 RX controller and streams
+  * @param csi2rx Driver private data
+  */
  static void custom_csi2rx_reset(struct custom_csi2rx_priv *csi2rx)
  {
      unsigned int i;
@@ -167,6 +234,11 @@
      }
  }
  
+ /**
+  * @brief Configure external D-PHY for MIPI CSI-2
+  * @param csi2rx Driver private data
+  * @return 0 on success, negative error code on failure
+  */
  static int custom_csi2rx_configure_external_dphy(struct custom_csi2rx_priv *csi2rx)
  {
      union phy_configure_opts opts = { };
@@ -188,12 +260,12 @@
      }
  
      link_freq = v4l2_get_link_freq(csi2rx->source_subdev->ctrl_handler,
-                        fmt->bpp, 2 * csi2rx->num_lanes);
+                                    fmt->bpp, 2 * csi2rx->num_lanes);
      if (link_freq < 0)
          return link_freq;
  
      ret = phy_mipi_dphy_get_default_config_for_hsclk(link_freq,
-                              csi2rx->num_lanes, cfg);
+                                                     csi2rx->num_lanes, cfg);
      if (ret)
          return ret;
  
@@ -208,6 +280,11 @@
      return ret;
  }
  
+ /**
+  * @brief Start the CSI-2 RX controller and streams
+  * @param csi2rx Driver private data
+  * @return 0 on success, negative error code on failure
+  */
  static int custom_csi2rx_start(struct custom_csi2rx_priv *csi2rx)
  {
      unsigned int i;
@@ -288,6 +365,10 @@
      return ret;
  }
  
+ /**
+  * @brief Stop the CSI-2 RX controller and streams
+  * @param csi2rx Driver private data
+  */
  static void custom_csi2rx_stop(struct custom_csi2rx_priv *csi2rx)
  {
      unsigned int i;
@@ -302,10 +383,10 @@
                 csi2rx->base + CUSTOM_CSI2RX_STREAM_CTRL_REG(i));
  
          ret = readl_relaxed_poll_timeout(csi2rx->base +
-                          CUSTOM_CSI2RX_STREAM_STATUS_REG(i),
-                          val,
-                          !(val & CUSTOM_CSI2RX_STREAM_STATUS_RDY),
-                          10, 10000);
+                                          CUSTOM_CSI2RX_STREAM_STATUS_REG(i),
+                                          val,
+                                          !(val & CUSTOM_CSI2RX_STREAM_STATUS_RDY),
+                                          10, 10000);
          if (ret)
              dev_warn(csi2rx->dev, "Failed to stop stream%u\n", i);
  
@@ -321,9 +402,17 @@
      }
  }
  
+ /**
+  * @brief Enable streams for the CSI-2 RX subdevice
+  * @param subdev V4L2 subdevice
+  * @param state V4L2 subdevice state
+  * @param pad Pad index
+  * @param streams_mask Mask of streams to enable
+  * @return 0 on success, negative error code on failure
+  */
  static int custom_csi2rx_enable_streams(struct v4l2_subdev *subdev,
-                     struct v4l2_subdev_state *state, u32 pad,
-                     u64 streams_mask)
+                                        struct v4l2_subdev_state *state, u32 pad,
+                                        u64 streams_mask)
  {
      struct custom_csi2rx_priv *csi2rx = v4l2_subdev_to_custom_csi2rx(subdev);
      struct media_pad *remote_pad;
@@ -341,9 +430,9 @@
          return ret;
  
      sink_streams = v4l2_subdev_state_xlate_streams(state,
-                                CUSTOM_CSI2RX_PAD_SOURCE_STREAM0,
-                                CUSTOM_CSI2RX_PAD_SINK,
-                                &streams_mask);
+                                                   CUSTOM_CSI2RX_PAD_SOURCE_STREAM0,
+                                                   CUSTOM_CSI2RX_PAD_SINK,
+                                                   &streams_mask);
  
      mutex_lock(&csi2rx->lock);
      if (!csi2rx->count) {
@@ -353,10 +442,10 @@
      }
  
      ret = v4l2_subdev_enable_streams(csi2rx->source_subdev, remote_pad->index,
-                      sink_streams);
+                                      sink_streams);
      if (ret) {
          dev_err(csi2rx->dev, "Failed to start streams %#llx on subdev\n",
-             sink_streams);
+                 sink_streams);
          goto err_subdev_enable;
      }
  
@@ -374,23 +463,31 @@
      return ret;
  }
  
+ /**
+  * @brief Disable streams for the CSI-2 RX subdevice
+  * @param subdev V4L2 subdevice
+  * @param state V4L2 subdevice state
+  * @param pad Pad index
+  * @param streams_mask Mask of streams to disable
+  * @return 0 on success, negative error code on failure
+  */
  static int custom_csi2rx_disable_streams(struct v4l2_subdev *subdev,
-                      struct v4l2_subdev_state *state, u32 pad,
-                      u64 streams_mask)
+                                         struct v4l2_subdev_state *state, u32 pad,
+                                         u64 streams_mask)
  {
      struct custom_csi2rx_priv *csi2rx = v4l2_subdev_to_custom_csi2rx(subdev);
      struct media_pad *remote_pad;
      u64 sink_streams;
  
      sink_streams = v4l2_subdev_state_xlate_streams(state,
-                                CUSTOM_CSI2RX_PAD_SOURCE_STREAM0,
-                                CUSTOM_CSI2RX_PAD_SINK,
-                                &streams_mask);
+                                                   CUSTOM_CSI2RX_PAD_SOURCE_STREAM0,
+                                                   CUSTOM_CSI2RX_PAD_SINK,
+                                                   &streams_mask);
  
      remote_pad = media_pad_remote_pad_first(&csi2rx->pads[CUSTOM_CSI2RX_PAD_SINK]);
      if (!remote_pad ||
          v4l2_subdev_disable_streams(csi2rx->source_subdev,
-                     remote_pad->index, sink_streams)) {
+                                     remote_pad->index, sink_streams)) {
          dev_err(csi2rx->dev, "Couldn't disable our subdev\n");
      }
  
@@ -405,16 +502,24 @@
      return 0;
  }
  
+ /**
+  * @brief Set stream routing for the CSI-2 RX subdevice
+  * @param subdev V4L2 subdevice
+  * @param state V4L2 subdevice state
+  * @param which Format type (active or try)
+  * @param routing Routing configuration
+  * @return 0 on success, negative error code on failure
+  */
  static int custom_csi2rx_set_routing(struct v4l2_subdev *subdev,
-                      struct v4l2_subdev_state *state,
-                      enum v4l2_subdev_format_whence which,
-                      struct v4l2_subdev_krouting *routing)
+                                     struct v4l2_subdev_state *state,
+                                     enum v4l2_subdev_format_whence which,
+                                     struct v4l2_subdev_krouting *routing)
  {
      struct custom_csi2rx_priv *csi2rx = v4l2_subdev_to_custom_csi2rx(subdev);
      static const struct v4l2_mbus_framefmt format = {
-         .width = 1920,  /* Matches custom_imx219 default */
+         .width = 1920,
          .height = 1080,
-         .code = MEDIA_BUS_FMT_SRGGB8_1X8,  /* Matches custom_imx219 default */
+         .code = MEDIA_BUS_FMT_SRGGB8_1X8,
          .field = V4L2_FIELD_NONE,
          .colorspace = V4L2_COLORSPACE_SRGB,
          .ycbcr_enc = V4L2_YCBCR_ENC_601,
@@ -430,7 +535,7 @@
          return -EINVAL;
  
      ret = v4l2_subdev_routing_validate(subdev, routing,
-                        V4L2_SUBDEV_ROUTING_ONLY_1_TO_1);
+                                       V4L2_SUBDEV_ROUTING_ONLY_1_TO_1);
      if (ret)
          return ret;
  
@@ -441,9 +546,16 @@
      return 0;
  }
  
+ /**
+  * @brief Set format for the CSI-2 RX subdevice
+  * @param subdev V4L2 subdevice
+  * @param state V4L2 subdevice state
+  * @param format Format configuration
+  * @return 0 on success, negative error code on failure
+  */
  static int custom_csi2rx_set_fmt(struct v4l2_subdev *subdev,
-                  struct v4l2_subdev_state *state,
-                  struct v4l2_subdev_format *format)
+                                 struct v4l2_subdev_state *state,
+                                 struct v4l2_subdev_format *format)
  {
      struct custom_csi2rx_priv *csi2rx = v4l2_subdev_to_custom_csi2rx(subdev);
      struct v4l2_mbus_framefmt *fmt;
@@ -464,7 +576,7 @@
      *fmt = format->format;
  
      fmt = v4l2_subdev_state_get_opposite_stream_format(state, format->pad,
-                                format->stream);
+                                                       format->stream);
      if (!fmt)
          return -EINVAL;
  
@@ -473,8 +585,14 @@
      return 0;
  }
  
+ /**
+  * @brief Initialize configuration for the CSI-2 RX subdevice
+  * @param subdev V4L2 subdevice
+  * @param state V4L2 subdevice state
+  * @return 0 on success, negative error code on failure
+  */
  static int custom_csi2rx_init_cfg(struct v4l2_subdev *subdev,
-                   struct v4l2_subdev_state *state)
+                                  struct v4l2_subdev_state *state)
  {
      struct v4l2_subdev_route routes[] = {
          {
@@ -494,45 +612,68 @@
      return custom_csi2rx_set_routing(subdev, state, V4L2_SUBDEV_FORMAT_TRY, &routing);
  }
  
+ /**
+  * @brief Get frame descriptor for the CSI-2 RX subdevice
+  * @param subdev V4L2 subdevice
+  * @param pad Pad index
+  * @param fd Pointer to frame descriptor
+  * @return 0 on success, negative error code on failure
+  */
  static int custom_csi2rx_get_frame_desc(struct v4l2_subdev *subdev, unsigned int pad,
-                     struct v4l2_mbus_frame_desc *fd)
+                                        struct v4l2_mbus_frame_desc *fd)
  {
      struct custom_csi2rx_priv *csi2rx = v4l2_subdev_to_custom_csi2rx(subdev);
  
      return custom_csi2rx_get_frame_desc_from_source(csi2rx, fd);
  }
  
+ /**
+  * @brief V4L2 subdevice pad operations
+  */
  static const struct v4l2_subdev_pad_ops custom_csi2rx_pad_ops = {
-     .get_fmt		= v4l2_subdev_get_fmt,
-     .set_fmt		= custom_csi2rx_set_fmt,
-     .init_cfg		= custom_csi2rx_init_cfg,
-     .get_frame_desc		= custom_csi2rx_get_frame_desc,
-     .set_routing		= custom_csi2rx_set_routing,
-     .enable_streams		= custom_csi2rx_enable_streams,
-     .disable_streams	= custom_csi2rx_disable_streams,
+     .get_fmt        = v4l2_subdev_get_fmt,
+     .set_fmt        = custom_csi2rx_set_fmt,
+     .init_cfg       = custom_csi2rx_init_cfg,
+     .get_frame_desc = custom_csi2rx_get_frame_desc,
+     .set_routing    = custom_csi2rx_set_routing,
+     .enable_streams = custom_csi2rx_enable_streams,
+     .disable_streams = custom_csi2rx_disable_streams,
  };
  
+ /**
+  * @brief V4L2 subdevice operations
+  */
  static const struct v4l2_subdev_ops custom_csi2rx_subdev_ops = {
-     .pad		= &custom_csi2rx_pad_ops,
+     .pad = &custom_csi2rx_pad_ops,
  };
  
+ /**
+  * @brief Media entity operations
+  */
  static const struct media_entity_operations custom_csi2rx_media_ops = {
      .link_validate = v4l2_subdev_link_validate,
  };
  
+ /**
+  * @brief Async notifier callback for subdevice binding
+  * @param notifier Async notifier
+  * @param s_subdev Source subdevice
+  * @param asd Async subdevice
+  * @return 0 on success, negative error code on failure
+  */
  static int custom_csi2rx_async_bound(struct v4l2_async_notifier *notifier,
-                      struct v4l2_subdev *s_subdev,
-                      struct v4l2_async_subdev *asd)
+                                     struct v4l2_subdev *s_subdev,
+                                     struct v4l2_async_subdev *asd)
  {
      struct v4l2_subdev *subdev = notifier->sd;
      struct custom_csi2rx_priv *csi2rx = v4l2_subdev_to_custom_csi2rx(subdev);
  
      csi2rx->source_pad = media_entity_get_fwnode_pad(&s_subdev->entity,
-                              s_subdev->fwnode,
-                              MEDIA_PAD_FL_SOURCE);
+                                                     s_subdev->fwnode,
+                                                     MEDIA_PAD_FL_SOURCE);
      if (csi2rx->source_pad < 0) {
          dev_err(csi2rx->dev, "Couldn't find output pad for subdev %s\n",
-             s_subdev->name);
+                 s_subdev->name);
          return csi2rx->source_pad;
      }
  
@@ -541,17 +682,26 @@
      dev_dbg(csi2rx->dev, "Bound %s pad: %d\n", s_subdev->name, csi2rx->source_pad);
  
      return media_create_pad_link(&csi2rx->source_subdev->entity,
-                      csi2rx->source_pad,
-                      &csi2rx->subdev.entity, 0,
-                      MEDIA_LNK_FL_ENABLED | MEDIA_LNK_FL_IMMUTABLE);
+                                  csi2rx->source_pad,
+                                  &csi2rx->subdev.entity, 0,
+                                  MEDIA_LNK_FL_ENABLED | MEDIA_LNK_FL_IMMUTABLE);
  }
  
+ /**
+  * @brief Async notifier operations
+  */
  static const struct v4l2_async_notifier_operations custom_csi2rx_notifier_ops = {
-     .bound		= custom_csi2rx_async_bound,
+     .bound = custom_csi2rx_async_bound,
  };
  
+ /**
+  * @brief Acquire hardware resources for the CSI-2 RX
+  * @param csi2rx Driver private data
+  * @param pdev Platform device
+  * @return 0 on success, negative error code on failure
+  */
  static int custom_csi2rx_get_resources(struct custom_csi2rx_priv *csi2rx,
-                        struct platform_device *pdev)
+                                       struct platform_device *pdev)
  {
      unsigned char i;
      u32 dev_cfg;
@@ -621,6 +771,11 @@
      return 0;
  }
  
+ /**
+  * @brief Parse device tree for CSI-2 RX configuration
+  * @param csi2rx Driver private data
+  * @return 0 on success, negative error code on failure
+  */
  static int custom_csi2rx_parse_dt(struct custom_csi2rx_priv *csi2rx)
  {
      struct v4l2_fwnode_endpoint v4l2_ep = { .bus_type = 0 };
@@ -658,7 +813,7 @@
      v4l2_async_nf_init(&csi2rx->notifier);
  
      asd = v4l2_async_nf_add_fwnode_remote(&csi2rx->notifier, fwh,
-                           struct v4l2_async_subdev);
+                                           struct v4l2_async_subdev);
      of_node_put(ep);
      if (IS_ERR(asd)) {
          v4l2_async_nf_cleanup(&csi2rx->notifier);
@@ -674,6 +829,11 @@
      return ret;
  }
  
+ /**
+  * @brief Suspend the CSI-2 RX device
+  * @param dev Platform device
+  * @return 0 on success
+  */
  static int custom_csi2rx_suspend(struct device *dev)
  {
      struct custom_csi2rx_priv *csi2rx = dev_get_drvdata(dev);
@@ -686,6 +846,11 @@
      return 0;
  }
  
+ /**
+  * @brief Resume the CSI-2 RX device
+  * @param dev Platform device
+  * @return 0 on success
+  */
  static int custom_csi2rx_resume(struct device *dev)
  {
      struct custom_csi2rx_priv *csi2rx = dev_get_drvdata(dev);
@@ -697,6 +862,11 @@
      return 0;
  }
  
+ /**
+  * @brief Probe function for the CSI-2 RX platform driver
+  * @param pdev Platform device
+  * @return 0 on success, negative error code on failure
+  */
  static int custom_csi2rx_probe(struct platform_device *pdev)
  {
      struct custom_csi2rx_priv *csi2rx;
@@ -723,7 +893,7 @@
      v4l2_subdev_init(&csi2rx->subdev, &custom_csi2rx_subdev_ops);
      v4l2_set_subdevdata(&csi2rx->subdev, &pdev->dev);
      snprintf(csi2rx->subdev.name, V4L2_SUBDEV_NAME_SIZE, "%s.%s",
-          KBUILD_MODNAME, dev_name(&pdev->dev));
+              KBUILD_MODNAME, dev_name(&pdev->dev));
  
      csi2rx->subdev.entity.function = MEDIA_ENT_F_VID_IF_BRIDGE;
      csi2rx->pads[CUSTOM_CSI2RX_PAD_SINK].flags = MEDIA_PAD_FL_SINK;
@@ -733,7 +903,7 @@
      csi2rx->subdev.entity.ops = &custom_csi2rx_media_ops;
  
      ret = media_entity_pads_init(&csi2rx->subdev.entity, CUSTOM_CSI2RX_PAD_MAX,
-                      csi2rx->pads);
+                                  csi2rx->pads);
      if (ret)
          goto err_cleanup;
  
@@ -747,10 +917,10 @@
          goto err_free_subdev;
  
      dev_info(&pdev->dev,
-          "Probed CUSTOM_CSI2RX with %u/%u lanes, %u streams, %s D-PHY\n",
-          csi2rx->num_lanes, csi2rx->max_lanes, csi2rx->max_streams,
-          csi2rx->dphy ? "external" :
-          csi2rx->has_internal_dphy ? "internal" : "no");
+              "Probed CUSTOM_CSI2RX with %u/%u lanes, %u streams, %s D-PHY\n",
+              csi2rx->num_lanes, csi2rx->max_lanes, csi2rx->max_streams,
+              csi2rx->dphy ? "external" :
+              csi2rx->has_internal_dphy ? "internal" : "no");
  
      return 0;
  
@@ -766,6 +936,11 @@
      return ret;
  }
  
+ /**
+  * @brief Remove function for the CSI-2 RX platform driver
+  * @param pdev Platform device
+  * @return 0 on success
+  */
  static int custom_csi2rx_remove(struct platform_device *pdev)
  {
      struct custom_csi2rx_priv *csi2rx = platform_get_drvdata(pdev);
@@ -781,27 +956,37 @@
      return 0;
  }
  
+ /**
+  * @brief Power management operations
+  */
  static const struct dev_pm_ops custom_csi2rx_pm_ops = {
      SET_RUNTIME_PM_OPS(custom_csi2rx_suspend, custom_csi2rx_resume, NULL)
  };
  
+ /**
+  * @brief Device tree compatible strings
+  */
  static const struct of_device_id csi2rx_of_table[] = {
-	{ .compatible = "cdns,csi2rx" },
-	{ },
-};
+     { .compatible = "cdns,csi2rx" },
+     { },
+ };
  MODULE_DEVICE_TABLE(of, csi2rx_of_table);
  
+ /**
+  * @brief Platform driver structure
+  */
  static struct platform_driver custom_csi2rx_driver = {
-     .probe	= custom_csi2rx_probe,
-     .remove	= custom_csi2rx_remove,
-     .driver	= {
-         .name		= "custom-csi2rx",
-         .of_match_table	= csi2rx_of_table,
-         .pm		= &custom_csi2rx_pm_ops,
+     .probe  = custom_csi2rx_probe,
+     .remove = custom_csi2rx_remove,
+     .driver = {
+         .name           = "custom-csi2rx",
+         .of_match_table = csi2rx_of_table,
+         .pm             = &custom_csi2rx_pm_ops,
      },
  };
+ 
  module_platform_driver(custom_csi2rx_driver);
  
- MODULE_AUTHOR("Custom Author");
+ MODULE_AUTHOR("RAM");
  MODULE_DESCRIPTION("Custom Cadence CSI2-RX controller");
  MODULE_LICENSE("GPL");
